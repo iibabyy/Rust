@@ -1,6 +1,6 @@
 use std::{io, iter};
 
-pub struct contact {
+pub struct Contact {
 	pub	FirstName: String,
 	pub LastName: String,
 	pub Nickname: String,
@@ -9,10 +9,10 @@ pub struct contact {
 }
 
 pub struct PhoneBook {
-	pub contact: Vec<contact>,
+	pub contact: Vec<Contact>,
 }
 
-impl contact
+impl Contact
 {
 	pub fn new() -> Self
 	{
@@ -21,7 +21,7 @@ impl contact
 		let  Nickname = String::new();
 		let  PhoneNumber = String::new();
 		let  DarkestSecret = String::new();
-		contact {
+		Contact {
 			FirstName,
 			LastName,
 			Nickname,
@@ -57,7 +57,7 @@ impl PhoneBook
 	{
 		let contact = Vec::new();
 		PhoneBook {
-			contact,
+			Contact,
 		}
 	}
 	pub fn new_contact(&mut self)
@@ -93,26 +93,27 @@ impl PhoneBook
 	{
 		for i in self.contact.iter()
 		{
-			// print
+			println!("{}", self.contact[i])
 		}
 	}
 	fn print_contact(contact: contact, i)
 	{
 		
 	}
-	fn print_max_10(mut str: String)
+	fn print_max_10(mut str: String) -> String
 	{
 		if str.len() > 10 {
 			str.truncate(9);
 			str.push_str(".");
 		}
 		else {
-			let mut len = str.chars();
+			let mut len = str.len();
+			let mut i: usize = 0;
 			len = 10 - len;
-			for i in len
-			{
-				str.push(ch);
+			while i < len {
+				str.push(' ');
 			}
 		}
+		str
 	}
 }
