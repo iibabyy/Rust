@@ -82,6 +82,9 @@ impl PhoneBook
 		input = get_input("nickname");
 		Contact::changenickname(&mut contact, input);
 		input = get_input("Phone Number");
+		while is_num(&input) == false || input.len() != 10 as usize{
+			input = get_input("Enter a valid phone number");
+		}
 		Contact::changephone_number(&mut contact, input);
 		input = get_input("Darkest secret");
 		Contact::changesecret(&mut contact, input);
@@ -98,7 +101,7 @@ impl PhoneBook
 		self.print_book();
 		println!("Enter the index");
 		io::stdin().read_line(&mut input).expect("Bad input");
-		let input: usize = match input.trim().parse(){
+		let input: usize = match input.trim().parse() {
 			Ok(num) => num,
 			Err(_) => {
 				println!("try with a better input maybe...");
@@ -133,6 +136,17 @@ impl PhoneBook
 	}
 }
 
+fn is_num(str: &String) -> bool
+{
+	for i in str.chars()
+	{
+		if i.is_ascii_digit() == false {
+			return false;
+		}
+	}
+	true
+}
+
 fn max_10(tmp: String) -> String
 {
 	let mut str: String = String::from(tmp);
@@ -156,5 +170,5 @@ fn get_input(prompt: &str) -> String
 
 	println!("{}:", prompt);
 	io::stdin().read_line(&mut input).expect("Error while reading input");
-	input
+	input.trim().to_string()
 }
