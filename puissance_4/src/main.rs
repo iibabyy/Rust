@@ -96,7 +96,11 @@ impl Game {
 							
 							self.hilight_winner(col, row, dir, c);
 							self.print_grill();
-							println!("Player {} wins !!!", c);
+							println!("Player {} wins !!!", match c {
+								'r' => "red".red(),
+								'b' => "blue".blue(),
+								_ => "?".white(),
+							});
 							return  true;
 						}
 					}
@@ -128,7 +132,7 @@ impl Game {
 				}
 			}
 			Direction::e => {
-				if col + 1 > self.grill[0].len() {
+				if col + 1 >= self.grill[0].len() {
 					return 0;
 				}else if player == self.grill[row].chars().nth(col + 1).unwrap() {
 					return 1 + self.count_aligned(player, dir, col + 1, row);
