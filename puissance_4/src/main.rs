@@ -227,26 +227,34 @@ fn main() {
     let mut game = Game::new();
 	let mut player: char = 'r';
 	
+	std::process::Command::new("clear").status().unwrap();
 	loop {
-		println!("\nplayer {}: enter a column\n", player);
 		game.print_grill();
+		println!("\nplayer {}: enter a column\n", match player {
+			'r' => "red".red(),
+			'b' => "blue".blue(),
+			_ => "?".white(),
+		});
 		let mut input = String::new();
 		std::io::stdin().read_line(&mut input);
 		println!("");
 		let mut input: usize = match input.trim().parse() {
 			Ok(num) => num,
 			Err(_) => {
-				println!("enter a valid input");
+				std::process::Command::new("clear").status().unwrap();
+				println!("enter a valid input\n");
 				continue ;
 			}
 		};
 		if input == 0 || input > game.grill.len() {
-			println!("{} {} {}", "column".red(), input.to_string().red(), "don't exist".red());
+			std::process::Command::new("clear").status().unwrap();
+			println!("{} {} {}\n", "column".red(), input.to_string().red(), "don't exist".red());
 			continue ;
 		}
 		input -= 1;
 		if game.lowest_empty_row(input) == -1 {
-			println!("{}", "column full".red());
+			std::process::Command::new("clear").status().unwrap();
+			println!("{}\n", "column full".red());
 			continue ;
 		}
 		game.add_token(input, player);
@@ -259,5 +267,6 @@ fn main() {
 		} else {
 			player = 'r';
 		}
+		std::process::Command::new("clear").status().unwrap();
 	}
 }
