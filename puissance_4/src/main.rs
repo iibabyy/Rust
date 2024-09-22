@@ -30,25 +30,25 @@ impl Game {
 	{
 		let mut i = self.grill.len();
 
-		println!("  1   2   3   4   5   6   7  ");
-		println!("  ⇩   ⇩   ⇩   ⇩   ⇩   ⇩   ⇩  \n");
+		println!("{}", "  1   2   3   4   5   6   7  \n".green().blink());
+		// println!("{}", "  ⇩   ⇩   ⇩   ⇩   ⇩   ⇩   ⇩  \n\n".green().blink());
 		while i != 0 {
-			print!("| ");
+			print!("{} ", "|".blue());
 			for c in self.grill[i - 1].chars() {
 				if c == '0' {
-					print!("  | ")
+					print!("  {} ", "|".blue());
 				} else {
-					print!("{} | ", match c {
+					print!("{} {} ", match c {
 						'r' | 'R' => c.to_string().red(),
-						'b' | 'B' => c.to_string().blue(),
+						'j' | 'J' => c.to_string().yellow(),
 						_ => "?".white(),
-					});
+					}, "|".blue());
 				}
 			}
 			println!("");
 			i -= 1;
 		}
-		println!("¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯\n");
+		println!("{}", "¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯\n".blue());
 	}
 	pub fn add_token(&mut self, column: usize, player: char)
 	{
@@ -100,9 +100,9 @@ impl Game {
 							self.hilight_winner(col, row, dir, c);
 							std::process::Command::new("clear").status().unwrap();
 							self.print_grill();
-							println!("Player {} wins !!!", match c {
-								'r' | 'R' => "red".red(),
-								'b' | 'B' => "blue".blue(),
+							println!("{}",  match c {
+								'r' | 'R' => "Red wins !!!".red(),
+								'j' | 'J' => "Yellow wins !!!".yellow(),
 								_ => "?".white(),
 							});
 							return  true;
@@ -190,9 +190,9 @@ fn main() {
 	std::process::Command::new("clear").status().unwrap();
 	loop {
 		game.print_grill();
-		println!("\nplayer {}: enter a column\n", match player {
-			'r' => "red".red(),
-			'b' => "blue".blue(),
+		println!("\n{}\n", match player {
+			'r' => "player Red: enter a column".red(),
+			'j' => "player Yellow: enter a column".yellow(),
 			_ => "?".white(),
 		});
 		let mut input = String::new();
@@ -202,7 +202,7 @@ fn main() {
 			Ok(num) => num,
 			Err(_) => {
 				std::process::Command::new("clear").status().unwrap();
-				println!("enter a valid input\n");
+				println!("enter a valid column number\n");
 				continue ;
 			}
 		};
@@ -223,7 +223,7 @@ fn main() {
 			return ;
 		}
 		if player == 'r' {
-			player = 'b';
+			player = 'j';
 		} else {
 			player = 'r';
 		}
