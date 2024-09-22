@@ -246,7 +246,7 @@ fn main() {
 				continue ;
 			}
 		};
-		if input == 0 || input > game.grill.len() {
+		if input == 0 || input > game.grill[0].len() {
 			std::process::Command::new("clear").status().unwrap();
 			println!("{} {} {}\n", "column".red(), input.to_string().red(), "don't exist".red());
 			continue ;
