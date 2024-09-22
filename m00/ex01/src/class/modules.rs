@@ -12,7 +12,6 @@ pub struct PhoneBook {
 	pub contact: Vec<Contact>,
 }
 
-
 impl Contact
 {
 	pub fn new() -> Self
