@@ -28,14 +28,44 @@ enum IntoColorError {
 impl TryFrom<(i16, i16, i16)> for Color {
     type Error = IntoColorError;
 
-    fn try_from(tuple: (i16, i16, i16)) -> Result<Self, Self::Error> {}
+    fn try_from(tuple: (i16, i16, i16)) -> Result<Self, Self::Error> {
+		Ok(Color {
+			red: match tuple.0.try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+			green: match tuple.1.try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+			blue: match tuple.2.try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+		})
+	}
 }
 
 // TODO: Array implementation.
 impl TryFrom<[i16; 3]> for Color {
     type Error = IntoColorError;
 
-    fn try_from(arr: [i16; 3]) -> Result<Self, Self::Error> {}
+    fn try_from(arr: [i16; 3]) -> Result<Self, Self::Error> {
+		Ok(Color {
+			red: match arr[0].try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+			green: match arr[1].try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+			blue: match arr[2].try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+		})
+	}
 }
 
 // TODO: Slice implementation.
@@ -43,7 +73,25 @@ impl TryFrom<[i16; 3]> for Color {
 impl TryFrom<&[i16]> for Color {
     type Error = IntoColorError;
 
-    fn try_from(slice: &[i16]) -> Result<Self, Self::Error> {}
+    fn try_from(slice: &[i16]) -> Result<Self, Self::Error> {
+		if slice.len() != 3 {
+			return Err(IntoColorError::BadLen);
+		}
+		Ok(Color {
+			red: match slice[0].try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+			green: match slice[1].try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+			blue: match slice[2].try_into() {
+				Ok(num) => num,
+				Err(_) => return Err(IntoColorError::IntConversion),
+			},
+		})
+	}
 }
 
 fn main() {
