@@ -4,7 +4,7 @@ pub struct Game {
 	grill: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Direction {
 	South ,
 	Est ,
@@ -94,11 +94,12 @@ impl Game {
 				if c == '0' {
 					continue ;
 				} else {
-					for dir in &directions {
-						if self.count_aligned(c, dir, col, row) >= 3
+					for dir in directions {
+						// println!("aligned == {}", self.count_aligned(c, dir, col, row));
+						if self.count_aligned(c, dir.clone(), col, row) >= 3
 						{
-							self.hilight_winner(col, row, dir, c);
-							std::process::Command::new("clear").status().unwrap();
+							self.hilight_winner(col, row, dir.clone(), c);
+							// std::process::Command::new("clear").status().unwrap();
 							self.print_grill();
 							println!("{}",  match c {
 								'r' | 'R' => "Red wins !!!".red(),
@@ -115,12 +116,13 @@ impl Game {
 		}
 		return false;
 	}
-	fn count_aligned(&self, player: char, dir: &Direction, col: usize, row: usize) -> usize
+	fn count_aligned(&self, player: char, dir: Direction, col: usize, row: usize) -> usize
 	{
 		match dir {
 			Direction::South => {
 				if row == 0 { return 0 }
 				if player == self.grill[row - 1].chars().nth(col).unwrap() {
+					println!("{}: South += 1", player);
 					return 1 + self.count_aligned(player, dir, col, row - 1);
 				} else {
 					return 0;
@@ -130,15 +132,18 @@ impl Game {
 				if col + 1 >= self.grill[0].len() {
 					return 0;
 				}else if player == self.grill[row].chars().nth(col + 1).unwrap() {
+					println!("{}: Est += 1", player);
 					return 1 + self.count_aligned(player, dir, col + 1, row);
 				} else {
 					return 0;
 				}
 			}
 			Direction::SEst => {
-				if col + 1 >= self.grill[0].len() || row == 0 { return 0 }
-
+				if col + 1 >= self.grill[0].len() || row == 0 {
+					return 0
+				}
 				if player == self.grill[row - 1].chars().nth(col + 1).unwrap() {
+					println!("{}: South Est += 1", player);
 					return 1 + self.count_aligned(player, dir, col + 1, row - 1);
 				} else {
 					return 0;
@@ -148,6 +153,7 @@ impl Game {
 				if row == 0 || col == 0 { return 0 }
 
 				if player == self.grill[row - 1].chars().nth(col - 1).unwrap() {
+					println!("{}: South West += 1", player);
 					return 1 + self.count_aligned(player, dir, col - 1, row - 1);
 				} else {
 					return 0;
@@ -155,7 +161,7 @@ impl Game {
 			}
 		}
 	}
-	fn hilight_winner(&mut self, mut col: usize, mut row: usize, dir: &Direction, player: char)
+	fn hilight_winner(&mut self, mut col: usize, mut row: usize, dir: Direction, player: char)
 	{
 		for i in 0..4
 		{
@@ -187,7 +193,7 @@ fn main() {
     let mut game = Game::new();
 	let mut player: char = 'r';
 	
-	std::process::Command::new("clear").status().unwrap();
+	// std::process::Command::new("clear").status().unwrap();
 	loop {
 		game.print_grill();
 		println!("\n{}\n", match player {
@@ -201,19 +207,19 @@ fn main() {
 		let mut input: usize = match input.trim().parse() {
 			Ok(num) => num,
 			Err(_) => {
-				std::process::Command::new("clear").status().unwrap();
+				// std::process::Command::new("clear").status().unwrap();
 				println!("enter a valid column number\n");
 				continue ;
 			}
 		};
 		if input == 0 || input > game.grill[0].len() {
-			std::process::Command::new("clear").status().unwrap();
+			// std::process::Command::new("clear").status().unwrap();
 			println!("{} {} {}\n", "column".red(), input.to_string().red(), "don't exist".red());
 			continue ;
 		}
 		input -= 1;
 		if game.lowest_empty_row(input) == -1 {
-			std::process::Command::new("clear").status().unwrap();
+			// std::process::Command::new("clear").status().unwrap();
 			println!("{}\n", "column full".red());
 			continue ;
 		}
@@ -227,6 +233,6 @@ fn main() {
 		} else {
 			player = 'r';
 		}
-		std::process::Command::new("clear").status().unwrap();
+		// std::process::Command::new("clear").status().unwrap();
 	}
 }

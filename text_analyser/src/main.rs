@@ -21,8 +21,9 @@ impl Stats {
 	{
 		text.split(|c| c == '.' || c == '?' || c == '!')
 		.filter(|phrase| phrase.trim().is_empty() == false)
-		.count();
+		.count()
 	}
+	
 	fn word_len(text: String) -> usize
 	{
 		let word_count = Self::count_words(text.clone());
