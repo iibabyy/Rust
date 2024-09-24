@@ -95,11 +95,10 @@ impl Game {
 					continue ;
 				} else {
 					for dir in directions {
-						// println!("aligned == {}", self.count_aligned(c, dir, col, row));
 						if self.count_aligned(c, dir.clone(), col, row) >= 3
 						{
 							self.hilight_winner(col, row, dir.clone(), c);
-							// std::process::Command::new("clear").status().unwrap();
+							std::process::Command::new("clear").status().unwrap();
 							self.print_grill();
 							println!("{}",  match c {
 								'r' | 'R' => "Red wins !!!".red(),
@@ -193,8 +192,8 @@ fn main() {
     let mut game = Game::new();
 	let mut player: char = 'r';
 	
-	// std::process::Command::new("clear").status().unwrap();
 	loop {
+		std::process::Command::new("clear").status().unwrap();
 		game.print_grill();
 		println!("\n{}\n", match player {
 			'r' => "player Red: enter a column".red(),
@@ -207,19 +206,19 @@ fn main() {
 		let mut input: usize = match input.trim().parse() {
 			Ok(num) => num,
 			Err(_) => {
-				// std::process::Command::new("clear").status().unwrap();
+				std::process::Command::new("clear").status().unwrap();
 				println!("enter a valid column number\n");
 				continue ;
 			}
 		};
 		if input == 0 || input > game.grill[0].len() {
-			// std::process::Command::new("clear").status().unwrap();
+			std::process::Command::new("clear").status().unwrap();
 			println!("{} {} {}\n", "column".red(), input.to_string().red(), "don't exist".red());
 			continue ;
 		}
 		input -= 1;
 		if game.lowest_empty_row(input) == -1 {
-			// std::process::Command::new("clear").status().unwrap();
+			std::process::Command::new("clear").status().unwrap();
 			println!("{}\n", "column full".red());
 			continue ;
 		}
@@ -233,6 +232,6 @@ fn main() {
 		} else {
 			player = 'r';
 		}
-		// std::process::Command::new("clear").status().unwrap();
+		std::process::Command::new("clear").status().unwrap();
 	}
 }
