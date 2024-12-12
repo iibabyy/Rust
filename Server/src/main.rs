@@ -2,6 +2,7 @@
 mod Server;
 #[allow(non_snake_case)]
 mod Parsing;
+mod traits;
 
 use Server::server::Server as server;
 use Parsing::*;
