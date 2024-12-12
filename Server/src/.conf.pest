@@ -1,0 +1,42 @@
+// Un fichier de configuration peut contenir plusieurs blocs
+config          = { SOI ~ (block ~ WHITESPACE?)+ ~ EOI }
+
+// Un bloc peut être un "server" ou un "location"
+block           = { "server" ~ WHITESPACE? ~ "{" ~ (directive | location_block)* ~ "}" }
+location_block  = { "location" ~ identifier ~ WHITESPACE? ~ "{" ~ (directive)* ~ "}" }
+
+// Une directive est une ligne clé-valeur simple (pas de retour à la ligne autorisé)
+directive       = { identifier ~ (INLINE_WHITESPACE ~ identifier?)* ~ ";" }
+
+// Identifiant : une chaîne alphanumérique avec symboles autorisés
+identifier      = @{ (ASCII_ALPHANUMERIC+ ~ (symbols ~ ASCII_ALPHANUMERIC))* }
+
+// Symboles autorisés dans un identifiant
+symbols			= _{ "/" | "." | "-" | "_" }
+
+// Gestion des espaces blancs entre les parties d'une directive
+INLINE_WHITESPACE = _{ " " | "\t" }
+
+// Gestion générale des espaces blancs pour pest
+WHITESPACE       = _{ " " | "\t" | "\r" | "\n" }
+
+// // Un fichier de configuration peut contenir plusieurs blocs
+// config          = { SOI ~ (block ~ WHITESPACE?)* ~ EOI }
+
+// // Un bloc peut être un "server" ou un "location"
+// block           = { "server" ~ WHITESPACE? ~ "{" ~ (directive | location_block)* ~ "}" }
+// location_block  = { "location" ~ identifier ~ "{" ~ (directive)* ~ "}" }
+
+// // Une directive est une ligne clé-valeur simple (pas de retour à la ligne autorisé)
+// directive       = { identifier ~ (INLINE_WHITESPACE ~ identifier?)+? ~ ";" }
+
+// // Identifiant : une chaîne alphanumérique
+// identifier      = { (ASCII_ALPHANUMERIC ~ symbols?)+ | (ASCII_ALPHANUMERIC? ~ symbols)+ }
+
+// symbols			= { "/" | "." | "-" | "_" }
+
+// // Gestion des espaces blancs entre les parties d'une directive
+// INLINE_WHITESPACE = { " " | "\t" }
+
+// // Gestion générale des espaces blancs pour pest
+// WHITESPACE       = _{ " " | "\t" | "\r" | "\n" }
