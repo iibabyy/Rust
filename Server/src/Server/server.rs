@@ -8,10 +8,14 @@ use crate::{request::request::Request, traits::config::Config, Parsing::*};
 #[derive(Clone, Debug)]
 pub struct Server {
 	port: Option<u16>,
+	client_max_body_size: Option<u64>,
 	default: bool,
 	root: Option<PathBuf>,
 	name: Option<Vec<String>>,
 	index: Option<String>,
+	return_: Option<(u16, Option<String>)>,
+	error_pages: HashMap<u16, String>,
+	error_redirect: HashMap<u16, (Option<u16>, String)>,
 	auto_index: bool,
 	methods: Option<Vec<String>>,
 	infos: HashMap<String, Vec<String>>,
@@ -32,9 +36,13 @@ impl Server {
 
 	pub fn new(config: ServerBlock) -> Result<Self, String> {
 		let mut serv = Server {
+			client_max_body_size: None,
 			index: None,
 			auto_index: false,
 			methods: None,
+			return_: None,
+			error_pages: HashMap::new(),
+			error_redirect: HashMap::new(),
 			infos: HashMap::new(),
 			locations: HashMap::new(),
 			cgi: HashMap::new(),
@@ -100,6 +108,8 @@ impl Server {
 				self.index = Some(Self::extract_index(infos)?);
 			} "auto_index" => {
 				self.auto_index = Self::extract_auto_index(infos)?;
+			} "client_max_body_size" => {
+				self.client_max_body_size = Some(Self::extract_max_body_size(infos)?);
 			} "cgi" => {
 				let (extension, path) = Self::extract_cgi(infos)?;
 				self.cgi.insert(extension, path);
@@ -108,6 +118,14 @@ impl Server {
 				if self.methods.is_none() { self.methods = Some(Vec::new()) }
 
 				self.methods.as_mut().unwrap().append(&mut infos.clone());
+			} "return" => {
+				self.return_ = Some(Self::extract_return(infos)?);
+			} "error_page" => {
+				let (pages, redirect) = Self::extract_error_page(infos)?;
+				let hash = &mut self.error_pages;
+				if pages.is_some() {pages.unwrap().iter().map(|(code, url)| hash.insert(code.to_owned(), url.to_owned())).last();}
+				let hash = &mut self.error_redirect;
+				if redirect.is_some() {redirect.unwrap().iter().map(|(code, url)| hash.insert(code.to_owned(), url.to_owned())).last();}
 			} _ => {
 				self.infos.insert(name, infos);
 			}
@@ -149,14 +167,47 @@ impl Server {
         self.default
     }
 
+	pub fn port(&self) -> Option<u16> {
+        self.port
+    }
+
+	pub fn client_max_body_size(&self) -> Option<u64> {
+        self.client_max_body_size
+    }
+
+	pub fn root(&self) -> Option<&PathBuf> {
+        self.root.as_ref()
+    }
+
+	pub fn name(&self) -> Option<&Vec<String>> {
+        self.name.as_ref()
+    }
+
+	pub fn get(&self, info: String) -> Option<String> {
+		Some(self.infos.get(&info)?.join(" "))
+	}
+
+	pub fn index(&self) -> Option<&String> {
+        self.index.as_ref()
+    }
+
+	pub fn auto_index(&self) -> bool {
+        self.auto_index
+    }
+
 }
 
 #[derive(Clone, Debug)]
 pub struct Location {
 	root: Option<PathBuf>,
 	path: PathBuf,
+	exact_path: bool,
+	return_: Option<(u16, Option<String>)>,
 	index: Option<String>,
 	auto_index: bool,
+	error_pages: HashMap<u16, String>,
+	error_redirect: HashMap<u16, (Option<u16>, String)>,
+	client_max_body_size: Option<u64>,
 	infos: HashMap<String, Vec<String>>,
 	methods: Option<Vec<String>>,
 	redirect: Option<String>,
@@ -176,6 +227,11 @@ impl Location {
 	fn new(location: LocationBlock) -> Result<Self, String> {
 		let mut new_location = Location {
 			path: PathBuf::from(location.path),
+			exact_path: (location.modifier == Some("=".to_string())),
+			error_pages: HashMap::new(),
+			error_redirect: HashMap::new(),
+			client_max_body_size: None,
+			return_: None,
 			root: None,
 			index: None,
 			methods: None,
@@ -206,6 +262,12 @@ impl Location {
 						Err(e) => return Err(format!("location ({}) : {}", new_location.path.display(), e)),
 						Ok(is_true) => new_location.auto_index = is_true,
 					}
+				} "client_max_body_size" => {
+					let max_body_size = Self::extract_max_body_size(infos);
+					match max_body_size {
+						Err(e) => return Err(format!("location ({}) : {}", new_location.path.display(), e)),
+						Ok(max_size) => new_location.client_max_body_size = Some(max_size),
+					}
 				} "cgi" => {
 					let (extension, path) = match Self::extract_cgi(infos) {
 						Err(e) => return Err(format!("location ({}) : {}", new_location.path.display(), e)),
@@ -220,6 +282,17 @@ impl Location {
 				} "redirect" => {
 					if infos.len() != 1 { return Err(format!("location ({}) : invalid field: redirect", new_location.path.display())) }
 					new_location.redirect = Some(infos[0].clone());
+				} "return" => {
+					new_location.return_ = match Self::extract_return(infos) {
+						Err(e) => return Err(format!("location ({}) : {}", new_location.path.display(), e)),
+						Ok(res) => Some(res),
+					}
+				} "error_page" => {
+					let (pages, redirect) = Self::extract_error_page(infos)?;
+					let hash = &mut new_location.error_pages;
+					if pages.is_some() {pages.unwrap().iter().map(|(code, url)| hash.insert(code.to_owned(), url.to_owned())).last();}
+					let hash = &mut new_location.error_redirect;
+					if redirect.is_some() {redirect.unwrap().iter().map(|(code, url)| hash.insert(code.to_owned(), url.to_owned())).last();}
 				} _ => {
 					new_location.infos.insert(name, infos);
 				}

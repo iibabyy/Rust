@@ -8,10 +8,10 @@ mod request;
 use tokio::task::JoinSet;
 use Server::server::Server as server;
 use Parsing::*;
-use std::{borrow::Borrow, net::IpAddr, process::exit, sync::Arc};
+use std::net::IpAddr;
 
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
 	let config = Parsing::get_config("src/conf.conf".to_string()).await;
 	let servers = match server::init_servers(config) {
@@ -22,7 +22,8 @@ async fn main() {
 		}
 	};
 
-	println!("Config:\n{:#?}", servers);
+	println!("--------------------[ CONFIG ]--------------------\n\n{:#?}", servers);
+	println!("--------------------------------------------------\n");
 
 	let mut task = JoinSet::new();
 	for serv in &servers {

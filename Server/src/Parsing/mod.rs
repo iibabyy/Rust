@@ -8,6 +8,7 @@ use tokio::{fs::File, io::AsyncReadExt as _};
 
 #[derive(Debug, Clone)]
 pub struct LocationBlock {
+	pub modifier: Option<String>,
 	pub path: String,
 	pub directives: HashMap<String, Vec<String>>,
 	pub cgi: HashMap<String, PathBuf>,

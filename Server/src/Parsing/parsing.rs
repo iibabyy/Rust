@@ -17,6 +17,11 @@ fn symbols(input: &str) -> IResult<&str, &str> {
     alt((tag("/"), tag("."), tag("-"), tag("_")))(input)
 }
 
+// Définition des symboles autorisés dans les identifiants
+fn modifier(input: &str) -> IResult<&str, &str> {
+    alt((tag("="), tag("~")))(input)
+}
+
 // Identifiant : chaîne alphanumérique avec symboles autorisés
 fn identifier(input: &str) -> IResult<&str, &str> {
     take_while(|c: char| c.is_ascii_whitespace() == false && c != ';')(input)
@@ -39,7 +44,7 @@ fn directive(mut input: &str) -> IResult<&str, (String, Vec<String>)> {
     let (mut input, values) = many0(preceded(space1, identifier))(input)?;
 	input = skip_spaces(input);
     (input, _) = char(';')(input)?;
-    Ok((input, (id.to_string(), values.iter().map(|str| str.to_string()).collect())))
+    Ok((input, (id.to_string(), values.iter().filter(|str| str.is_empty() == false).map(|str| str.to_string()).collect())))
 }
 
 fn skip_whitespaces(input: &str) -> &str {
@@ -111,6 +116,11 @@ fn location_block(mut input: &str) -> IResult<&str, LocationBlock> {
 	input = skip_whitespaces(input);
     (input, _) = tag("location")(input)?;
 	input = skip_spaces(input);
+	let (mut input , modifier) = match modifier(input) {
+		Ok((input, modifier)) => (input, Some(modifier.to_string())),
+		_ => (input, None),
+	};
+	input = skip_spaces(input);
     let (mut input, path) = identifier(input)?;
 	input = skip_whitespaces(input);
 	(input, _) = char('{')(input)?;
@@ -132,8 +142,10 @@ fn location_block(mut input: &str) -> IResult<&str, LocationBlock> {
 		}
 	}
 
+	input = skip_whitespaces(input);
     // Crée un bloc de type "location" similaire à une directive
     Ok((input, LocationBlock {
+		modifier: modifier,
 		path: path.to_string(),
 		directives: infos,
 		cgi: cgi,
