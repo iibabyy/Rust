@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::format, num::ParseIntError, os::linux::raw::stat, path::{Path, PathBuf}};
+use std::{collections::HashMap, path::PathBuf};
 
 fn is_redirect_status_code(code: u16) -> bool {
 	code == 301 || code == 302 || code == 303 || code == 307
@@ -28,7 +28,7 @@ pub trait Config {
 	
 	}
 
-	fn extract_error_page(value: Vec<String>) -> (Result<(Option<HashMap<u16, String>>, Option<HashMap<u16, (Option<u16>, String)>>), String>) {
+	fn extract_error_page(value: Vec<String>) -> Result<(Option<HashMap<u16, String>>, Option<HashMap<u16, (Option<u16>, String)>>), String> {
 		if value.is_empty() { return Err(format!("invalid field: error_page: empty")) }
 
 		let mut pages = HashMap::new();
@@ -87,7 +87,7 @@ pub trait Config {
 			match is_redirect_status_code(status_code) {
 				true => { Some(value[1].clone()) },
 				false => {
-					eprintln!("'return' field: not redirect code, url ignored ({status_code} {})", value[1]);
+					println!("'return' field: not redirect code, url ignored ({status_code} {})", value[1]);
 					None
 				}
 			}

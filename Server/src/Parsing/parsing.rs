@@ -3,7 +3,7 @@ extern crate nom;
 use std::{collections::HashMap, path::PathBuf};
 
 use nom::{
-    branch::alt, bytes::complete::{tag, take_while}, character::complete::{char, multispace0, space1}, multi::{many0, many1}, sequence::preceded, IResult
+    branch::alt, bytes::complete::{tag, take_while}, character::complete::{char, multispace0, space1}, multi::many0, sequence::preceded, IResult
 };
 
 use crate::LocationBlock;
@@ -154,5 +154,12 @@ fn location_block(mut input: &str) -> IResult<&str, LocationBlock> {
 
 // Fichier de configuration : commence avec SOI (Start of Input) et finit avec EOI (End of Input)
 pub fn config(input: &str) -> IResult<&str, Vec<ServerBlock>> {
-    many1(block)(input)
+    let (input, servs) = many0(block)(input)?;
+	
+	let input = skip_whitespaces(input);
+	if input.is_empty() == false {
+		Err(nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))
+	} else {
+		Ok((input, servs))
+	}
 }

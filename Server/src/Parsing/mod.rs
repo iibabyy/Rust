@@ -28,10 +28,11 @@ pub async fn get_config(path: String) -> Vec<ServerBlock> {
 	let servers = match config(content.as_str()) {
 		Ok((_, servers)) => servers,
 		Err(_) => {
+			eprintln!("----[Bad config file !]----");
 			panic!();
 		}
 	};
-	println!("Parsing réussi!");
+	eprintln!("----[Parsing réussi !]----");
 	servers
 }
 

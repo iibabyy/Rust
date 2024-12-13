@@ -1,6 +1,6 @@
 
 
-use std::{collections::HashMap, path::PathBuf, str::{Split, SplitTerminator, SplitWhitespace}, sync::BarrierWaitResult};
+use std::{collections::HashMap, path::PathBuf, str::Split};
 
 use crate::traits::http_message::HttpMessage;
 
@@ -17,6 +17,7 @@ pub enum Method {
 	CONNECT,
 }
 
+#[allow(dead_code)]
 impl Method {
 	pub fn str_to_method(method: &str) -> Option<Method> {
 		match method {
@@ -48,6 +49,7 @@ impl Method {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct Request {
 	method: Method,
 	path: PathBuf,

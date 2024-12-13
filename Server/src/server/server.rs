@@ -1,7 +1,6 @@
 use std::{collections::HashMap, net::{IpAddr, SocketAddr}, path::PathBuf, sync::Arc};
 
-use url::Url;
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select};
+use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 use crate::{request::request::Request, traits::config::Config, Parsing::*};
 
@@ -32,6 +31,7 @@ impl Config for Server {
 	fn port(&self) -> Option<u16> { self.port }
 }
 
+#[allow(dead_code)]
 impl Server {
 
 	pub fn new(config: ServerBlock) -> Result<Self, String> {
@@ -75,7 +75,8 @@ impl Server {
 
 	pub async fn run(self, ip: IpAddr) -> Result<(), io::Error>{
 		if self.port.is_none() {
-			println!("------[No port to listen -> no bind]------")
+			println!("------[No port to listen -> no bind]------");
+			return Ok(())
 		}
 
 		let listener = TcpListener::bind(SocketAddr::new(ip, self.port.unwrap())).await?;
@@ -142,11 +143,10 @@ impl Server {
 	}
 
 	async fn handle_client(&self, mut stream: TcpStream) {
-		let mut response_code = 200;
+		let response_code = 200;
 		let mut buffer = [0; 65536];
 
 		//	getting request
-		println!("Handling Client");
 		stream.read(&mut buffer).await.expect("failed to receive request !");
 		let buffer = String::from_utf8_lossy(&buffer[..]);
 		let request = match Request::deserialize(buffer.into_owned()) {
@@ -198,6 +198,7 @@ impl Server {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct Location {
 	root: Option<PathBuf>,
 	path: PathBuf,
@@ -223,6 +224,7 @@ impl Config for Location {
 	fn port(&self) -> Option<u16> { None }
 }
 
+#[allow(dead_code)]
 impl Location {
 	fn new(location: LocationBlock) -> Result<Self, String> {
 		let mut new_location = Location {
