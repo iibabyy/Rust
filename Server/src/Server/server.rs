@@ -1,9 +1,9 @@
 use std::{collections::HashMap, net::{IpAddr, SocketAddr}, path::PathBuf, sync::Arc};
 
 use url::Url;
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, select};
 
-use crate::{traits::config::Config, Parsing::*};
+use crate::{request::request::Request, traits::config::Config, Parsing::*};
 
 #[derive(Clone, Debug)]
 pub struct Server {
@@ -65,13 +65,13 @@ impl Server {
 		Ok(servers)
 	}
 
-	pub async fn run(&self, ip: IpAddr) -> Result<(), io::Error>{
+	pub async fn run(self, ip: IpAddr) -> Result<(), io::Error>{
 		if self.port.is_none() {
 			println!("------[No port to listen -> no bind]------")
 		}
 
 		let listener = TcpListener::bind(SocketAddr::new(ip, self.port.unwrap())).await?;
-		println!("------[Server listening on {}]------", ip);
+		println!("------[Server listening on {ip}::{}]------", self.port.unwrap());
 		let server = Arc::new(self.clone());
 		loop {
 			let (stream, _) = listener.accept().await?;
@@ -82,6 +82,7 @@ impl Server {
 			});
 		}
 	}
+
 	fn add_directive(&mut self, name: String, infos: Vec<String>) -> Result<(), String> {
 		match name.as_str() {
 			"root" => {		// ROOT
@@ -123,15 +124,25 @@ impl Server {
 	}
 
 	async fn handle_client(&self, mut stream: TcpStream) {
-		let mut buffer = [0; 1024];
+		let mut response_code = 200;
+		let mut buffer = [0; 65536];
 
 		//	getting request
+		println!("Handling Client");
 		stream.read(&mut buffer).await.expect("failed to receive request !");
 		let buffer = String::from_utf8_lossy(&buffer[..]);
-		println!("Request received: {}", buffer);
+		let request = match Request::deserialize(buffer.into_owned()) {
+			Ok(request) => request,
+			Err((code, str)) => {
+				println!("Error: {str}");
+				stream.write(format!("HTTP/1.1 {code} OK\r\n\r\n{str}\r\n").as_bytes()).await.expect("failed to send response");
+				return ;
+			}
+		};
+		println!("Request received: {:#?}", request);
+
 		//	sending RESPONSE
-		let response = b"HTTP/1.1 200 OK\r\n\r\nHello from server !\r\n";
-		stream.write(response).await.expect("failed to send response");
+		stream.write(format!("HTTP/1.1 {response_code} OK\r\n\r\nHello from server !\r\n").as_bytes()).await.expect("failed to send response");
 	}
 
 	pub fn is_default(&self) -> bool {

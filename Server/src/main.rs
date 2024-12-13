@@ -3,23 +3,35 @@ mod Server;
 #[allow(non_snake_case)]
 mod Parsing;
 mod traits;
+mod request;
 
+use tokio::task::JoinSet;
 use Server::server::Server as server;
 use Parsing::*;
-use std::net::IpAddr;
+use std::{borrow::Borrow, net::IpAddr, process::exit, sync::Arc};
 
 
 #[tokio::main]
 async fn main() {
 	let config = Parsing::get_config("src/conf.conf".to_string()).await;
-	let server = match server::init_servers(config) {
+	let servers = match server::init_servers(config) {
 		Ok(vec) => vec,
 		Err(e) => {
 			println!("Error: {}", e);
 			return ;
 		}
 	};
-	println!("Config:\n{:#?}", server);
 
-	server.first().unwrap().run(IpAddr::from([127, 0, 0, 1])).await.unwrap();
+	println!("Config:\n{:#?}", servers);
+
+	let mut task = JoinSet::new();
+	for serv in &servers {
+		task.spawn(serv.to_owned().run(IpAddr::from([127, 0, 0, 1])));
+	}
+	while let Some(res) = task.join_next().await {
+		match res {
+			Err(e) => { eprintln!("----[Error: {e}]----") },
+			Ok(_) => {},
+		}
+	}
 }
