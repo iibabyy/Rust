@@ -49,6 +49,14 @@ impl Method {
 }
 
 #[derive(Debug)]
+pub enum State {
+	Undefined,
+	OnHeader,
+	OnBody,
+	Finished,
+}
+
+#[derive(Debug)]
 #[allow(dead_code)]
 pub struct Request {
 	method: Method,
@@ -57,37 +65,57 @@ pub struct Request {
 	host: Option<String>,
 	headers: HashMap<String, String>,
 	content_length: Option<u64>,
-	body: Option<String>,
-	// Connection: (keep_alive or close)
+	raw_body: Option<String>,
+	raw_header: String,
+	state: State,
 	keep_connection_alive: bool,
 }
 
 impl HttpMessage for Request {}
 
 impl Request {
-	pub fn deserialize(request: String) -> Result<Self, (u16, String)> {
-		let mut headers = request.split("\r\n");
+	pub fn push(&mut self, request: String) -> Result<(), (u16, String)> {
+		let (header, body) = match request.split_once("\r\n") {
+			None => {	// Header not finished
+				self.raw_header.push_str(&request);
+				return Ok(());
+			}
+			Some((header, body)) => (header, body)
+		};
+		// Header complete
+		self.raw_header.clear();
+		self.state = State::OnHeader;
+		if body.is_empty() == false {
+			self.raw_body = Some(body.to_string());
+		}
+
+		self.deserialize_header()
+	}
+
+	fn deserialize_header(&mut self) -> Result<(), (u16, String)> {
+		let mut headers = self.raw_header.split("\r\n");
 
 		let first_line = headers.next();
 		if first_line.is_none() { return Err((400, format!("empty header"))) }
 	
 		let (method, path) = Self::parse_first_line(first_line.unwrap())?;
 
-		let mut request = Request {
-			method: method,
-			path: path,
-			content_length: None,
-			keep_connection_alive: true,
-			accept: None,
-			headers: HashMap::new(),
-			body: None,
-			host: None,
-		};
+		// let mut request = Request {
+		// 	method: method,
+		// 	path: path,
+		// 	headers: HashMap::new(),
+		// 	raw_header: String::new(),
+		// 	content_length: None,
+		// 	keep_connection_alive: true,
+		// 	accept: None,
+		// 	state: State::Undefined,
+		// 	raw_body: None,
+		// 	host: None,
+		// };
 
-		request.parse_other_lines(headers)?;
+		self.parse_other_lines(headers)?;
 
-		Ok(request)
-
+		Ok(())
 
 	}
 
@@ -145,6 +173,14 @@ impl Request {
 
 		Ok((method, path))
 	}
+
+	pub fn state(&self) -> &State {
+        &self.state
+    }
+
+	pub fn set_state(&mut self, state: State) {
+        self.state = state;
+    }
 
 }
 

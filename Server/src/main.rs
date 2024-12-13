@@ -1,6 +1,7 @@
-mod server;
 #[allow(non_snake_case)]
 mod Parsing;
+mod server;
+mod client;
 mod traits;
 mod request;
 
@@ -8,7 +9,6 @@ use tokio::task::JoinSet;
 use server::server::Server;
 use Parsing::*;
 use std::net::IpAddr;
-
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -28,6 +28,7 @@ async fn main() {
 	for serv in &servers {
 		task.spawn(serv.to_owned().run(IpAddr::from([127, 0, 0, 1])));
 	}
+
 	while let Some(res) = task.join_next().await {
 		match res {
 			Err(e) => { println!("----[Error: {e}]----") },

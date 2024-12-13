@@ -1,47 +1,101 @@
-use std::{collections::HashMap, net::{IpAddr, SocketAddr}, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr}, os::fd::AsFd, path::PathBuf, sync::Arc};
 
 use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
-use crate::{request::request::Request, traits::config::Config, Parsing::*};
+use crate::{client::client::Client, request::request::Request, traits::config::Config, Parsing::*};
+
+/*--------------------------[ SERVER ]--------------------------*/
 
 #[derive(Clone, Debug)]
 pub struct Server {
-	port: Option<u16>,
-	client_max_body_size: Option<u64>,
-	default: bool,
-	root: Option<PathBuf>,
-	name: Option<Vec<String>>,
-	index: Option<String>,
-	return_: Option<(u16, Option<String>)>,
-	error_pages: HashMap<u16, String>,
-	error_redirect: HashMap<u16, (Option<u16>, String)>,
-	auto_index: bool,
-	methods: Option<Vec<String>>,
-	infos: HashMap<String, Vec<String>>,
-	locations: HashMap<PathBuf, Location>,
-	cgi: HashMap<String, PathBuf>,
+	pub(self) port: Option<u16>,
+	pub(self) clients: HashMap<u16, Arc<Client>>,
+	pub(self) client_max_body_size: Option<u64>,
+	pub(self) default: bool,
+	pub(self) root: Option<PathBuf>,
+	pub(self) name: Option<Vec<String>>,
+	pub(self) index: Option<String>,
+	pub(self) return_: Option<(u16, Option<String>)>,
+	pub(self) error_pages: HashMap<u16, String>,
+	pub(self) error_redirect: HashMap<u16, (Option<u16>, String)>,
+	pub(self) auto_index: bool,
+	pub(self) methods: Option<Vec<String>>,
+	pub(self) infos: HashMap<String, Vec<String>>,
+	pub(self) locations: HashMap<PathBuf, Location>,
+	pub(self) cgi: HashMap<String, PathBuf>,
 }
 
-impl Config for Server {
-	fn root(&self) -> &Option<PathBuf> { &self.root }
-	fn auto_index(&self) -> bool { self.auto_index }
-	fn cgi_path(&self, extension: String) -> Option<&PathBuf> { self.cgi.get::<String>(&extension) }
-	fn index(&self) -> &Option<String> { &self.index }
-	fn is_method_allowed(&self, method: String) -> bool { self.methods.as_ref().is_some() && self.methods.as_ref().unwrap().contains(&method) }
-	fn port(&self) -> Option<u16> { self.port }
+impl Server {
+
+	pub async fn run(self, ip: IpAddr) -> Result<(), io::Error>{
+		if self.port.is_none() {
+			println!("------[No port to listen -> no bind]------");
+			return Ok(())
+		}
+
+		let listener = TcpListener::bind(SocketAddr::new(ip, self.port.unwrap())).await?;
+		println!("------[Server listening on {ip}::{}]------", self.port.unwrap());
+		let server = Arc::new(self);
+		loop {
+			let (mut stream, _) = listener.accept().await?;
+			println!("------[Connection accepted]------");
+			let server_instance = Arc::clone(&server);
+			println!("fd: {:#?}", stream.as_fd().try_clone_to_owned().unwrap());
+			tokio::spawn( async move {
+				server_instance.handle_client(&mut stream).await
+			});
+		}
+	}
+
+	async fn handle_client(&self, stream: &mut TcpStream) {
+		let response_code = 200;
+		let mut buffer = [0; 65536];
+		// let client = 
+
+		//	getting request
+		stream.read(&mut buffer).await.expect("failed to receive request !");
+		let buffer = String::from_utf8_lossy(&buffer[..]);
+		let request = match Request::deserialize(buffer.into_owned()) {
+			Ok(request) => request,
+			Err((code, str)) => {
+				println!("Error: {str}");
+				stream.write(format!("HTTP/1.1 {code} OK\r\n\r\n{str}\r\n").as_bytes()).await.expect("failed to send response");
+				return ;
+			}
+		};
+		println!("Request received: {:#?}", request);
+		
+		//	sending RESPONSE
+		stream.write(format!("HTTP/1.1 {response_code} OK\r\n\r\nHello from server !\r\n").as_bytes()).await.expect("failed to send response");
+	}
+
 }
+
+
+/*--------------------------[ UTILS ]--------------------------*/
 
 #[allow(dead_code)]
 impl Server {
+
+	pub fn init_servers(configs: Vec<ServerBlock>) -> Result<Vec<Self>, String> {
+		let mut servers = Vec::new();
+
+		for server_config in configs {
+			servers.push(Self::new(server_config)?);
+		}
+
+		Ok(servers)
+	}
 
 	pub fn new(config: ServerBlock) -> Result<Self, String> {
 		let mut serv = Server {
 			client_max_body_size: None,
 			index: None,
-			auto_index: false,
 			methods: None,
 			return_: None,
+			auto_index: false,
 			error_pages: HashMap::new(),
+			clients: HashMap::new(),
 			error_redirect: HashMap::new(),
 			infos: HashMap::new(),
 			locations: HashMap::new(),
@@ -61,35 +115,6 @@ impl Server {
 		serv.cgi = config.cgi;
 
 		Ok(serv)
-	}
-
-	pub fn init_servers(configs: Vec<ServerBlock>) -> Result<Vec<Self>, String> {
-		let mut servers = Vec::new();
-
-		for server_config in configs {
-			servers.push(Self::new(server_config)?);
-		}
-
-		Ok(servers)
-	}
-
-	pub async fn run(self, ip: IpAddr) -> Result<(), io::Error>{
-		if self.port.is_none() {
-			println!("------[No port to listen -> no bind]------");
-			return Ok(())
-		}
-
-		let listener = TcpListener::bind(SocketAddr::new(ip, self.port.unwrap())).await?;
-		println!("------[Server listening on {ip}::{}]------", self.port.unwrap());
-		let server = Arc::new(self.clone());
-		loop {
-			let (stream, _) = listener.accept().await?;
-			println!("------[Connection accepted]------");
-			let server_instance = Arc::clone(&server);
-			tokio::spawn( async move {
-				server_instance.handle_client(stream).await
-			});
-		}
 	}
 
 	fn add_directive(&mut self, name: String, infos: Vec<String>) -> Result<(), String> {
@@ -142,27 +167,6 @@ impl Server {
 		Ok(())
 	}
 
-	async fn handle_client(&self, mut stream: TcpStream) {
-		let response_code = 200;
-		let mut buffer = [0; 65536];
-
-		//	getting request
-		stream.read(&mut buffer).await.expect("failed to receive request !");
-		let buffer = String::from_utf8_lossy(&buffer[..]);
-		let request = match Request::deserialize(buffer.into_owned()) {
-			Ok(request) => request,
-			Err((code, str)) => {
-				println!("Error: {str}");
-				stream.write(format!("HTTP/1.1 {code} OK\r\n\r\n{str}\r\n").as_bytes()).await.expect("failed to send response");
-				return ;
-			}
-		};
-		println!("Request received: {:#?}", request);
-
-		//	sending RESPONSE
-		stream.write(format!("HTTP/1.1 {response_code} OK\r\n\r\nHello from server !\r\n").as_bytes()).await.expect("failed to send response");
-	}
-
 	pub fn is_default(&self) -> bool {
         self.default
     }
@@ -196,6 +200,17 @@ impl Server {
     }
 
 }
+
+impl Config for Server {
+	fn root(&self) -> &Option<PathBuf> { &self.root }
+	fn auto_index(&self) -> bool { self.auto_index }
+	fn cgi_path(&self, extension: String) -> Option<&PathBuf> { self.cgi.get::<String>(&extension) }
+	fn index(&self) -> &Option<String> { &self.index }
+	fn is_method_allowed(&self, method: String) -> bool { self.methods.as_ref().is_some() && self.methods.as_ref().unwrap().contains(&method) }
+	fn port(&self) -> Option<u16> { self.port }
+}
+
+/*--------------------------[ LOCATIONS ]--------------------------*/
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
@@ -310,3 +325,5 @@ impl Location {
         &self.path
     }
 }
+
+
