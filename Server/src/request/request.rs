@@ -1,11 +1,12 @@
 
 
-use std::{collections::HashMap, path::PathBuf, str::Split};
+use std::{collections::HashMap, ops::{Deref, DerefMut}, path::PathBuf, str::Split};
 
 use crate::traits::http_message::HttpMessage;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Method {
+	UNDEFINED,
 	GET,
 	POST,
 	DELETE,
@@ -17,38 +18,7 @@ pub enum Method {
 	CONNECT,
 }
 
-#[allow(dead_code)]
-impl Method {
-	pub fn str_to_method(method: &str) -> Option<Method> {
-		match method {
-			"GET" => Some(Method::GET),
-			"POST" => Some(Method::POST),
-			"DELETE" => Some(Method::DELETE),
-			"OPTIONS" => Some(Method::OPTIONS),
-			"HEAD" => Some(Method::HEAD),
-			"PUT" => Some(Method::PUT),
-			"CONNECT" => Some(Method::CONNECT),
-			"PATCH" => Some(Method::PATCH),
-			"TRACE" => Some(Method::TRACE),
-			_ => None
-		}
-	}
-	pub fn method_to_str(method: Method) -> String {
-		match method {
-			Method::GET => "GET".to_string(),
-			Method::POST => "POST".to_string(),
-			Method::DELETE => "DELETE".to_string(),
-			Method::HEAD => "HEAD".to_string(),
-			Method::PUT => "PUT".to_string(),
-			Method::CONNECT => "CONNECT".to_string(),
-			Method::PATCH => "PATCH".to_string(),
-			Method::TRACE => "TRACE".to_string(),
-			Method::OPTIONS => "OPTIONS".to_string(),
-		}
-	}
-}
-
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum State {
 	Undefined,
 	OnHeader,
@@ -56,7 +26,7 @@ pub enum State {
 	Finished,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Request {
 	method: Method,
@@ -71,11 +41,34 @@ pub struct Request {
 	keep_connection_alive: bool,
 }
 
+impl TryFrom<String> for Request {
+	type Error = (u16, String);
+	fn try_from(value: String) -> Result<Self, Self::Error> {
+		let mut request = Request {
+			method: Method::UNDEFINED,
+			path: PathBuf::new(),
+			accept: None,
+			host: None,
+			headers: HashMap::new(),
+			content_length: None,
+			raw_body: None,
+			raw_header: String::new(),
+			keep_connection_alive: true,
+			state: State::Undefined,
+		};
+
+		request.push(value)?;
+		Ok(request)
+	}
+}
+
 impl HttpMessage for Request {}
 
 impl Request {
 	pub fn push(&mut self, request: String) -> Result<(), (u16, String)> {
-		let (header, body) = match request.split_once("\r\n") {
+		if self.state == State::OnBody { todo!() }
+
+		let (header, body) = match request.split_once("\r\n\r\n") {
 			None => {	// Header not finished
 				self.raw_header.push_str(&request);
 				return Ok(());
@@ -83,36 +76,23 @@ impl Request {
 			Some((header, body)) => (header, body)
 		};
 		// Header complete
-		self.raw_header.clear();
+		self.raw_header = header.to_string();
 		self.state = State::OnHeader;
 		if body.is_empty() == false {
 			self.raw_body = Some(body.to_string());
 		}
 
-		self.deserialize_header()
+		self.deserialize()
 	}
 
-	fn deserialize_header(&mut self) -> Result<(), (u16, String)> {
-		let mut headers = self.raw_header.split("\r\n");
+	fn deserialize(&mut self) -> Result<(), (u16, String)> {
+		let temp = self.raw_header.clone();
+		let mut headers = temp.split("\r\n");
 
 		let first_line = headers.next();
 		if first_line.is_none() { return Err((400, format!("empty header"))) }
 	
-		let (method, path) = Self::parse_first_line(first_line.unwrap())?;
-
-		// let mut request = Request {
-		// 	method: method,
-		// 	path: path,
-		// 	headers: HashMap::new(),
-		// 	raw_header: String::new(),
-		// 	content_length: None,
-		// 	keep_connection_alive: true,
-		// 	accept: None,
-		// 	state: State::Undefined,
-		// 	raw_body: None,
-		// 	host: None,
-		// };
-
+		self.parse_first_line(first_line.unwrap())?;
 		self.parse_other_lines(headers)?;
 
 		Ok(())
@@ -155,8 +135,8 @@ impl Request {
 
 		Ok(())
 	}
-
-	fn parse_first_line(line: &str) -> Result<(Method, PathBuf), (u16, String)> {
+	
+	fn parse_first_line(&mut self, line: &str) -> Result<(), (u16, String)> {
 		let split: Vec<&str> = line.split_whitespace().collect();
 
 		if split.len() != 3 { return Err((400, format!("invlid header: first line invalid: [{line}]"))) }	// Bad Request
@@ -164,27 +144,84 @@ impl Request {
 
 
 		let method = split[0];
-		let method = match Method::str_to_method(method) {
+		self.method = match Method::str_to_method(method) {
 			Some(method) => method,
 			None => { return Err((501, format!("invlid header: unknown method {method}"))) }
 		};
 
-		let path = PathBuf::from(split[1]);
+		self.path = PathBuf::from(split[1]);
+		
+		Ok(())
+	}
 
-		Ok((method, path))
+	pub fn get(&self, header: String) -> Option<&String> {
+		match self.headers.get(&header) {
+			None => None,
+			Some(value) => Some(value),
+		}
 	}
 
 	pub fn state(&self) -> &State {
         &self.state
     }
 
-	pub fn set_state(&mut self, state: State) {
-        self.state = state;
+	pub fn method(&self) -> &Method {
+        &self.method
+    }
+
+	pub fn path(&self) -> &PathBuf {
+        &self.path
+    }
+
+	pub fn accept(&self) -> Option<&String> {
+        self.accept.as_ref()
+    }
+
+	pub fn host(&self) -> Option<&String> {
+        self.host.as_ref()
+    }
+
+	pub fn content_length(&self) -> Option<u64> {
+        self.content_length
+    }
+
+	pub fn keep_connection_alive(&self) -> bool {
+        self.keep_connection_alive
     }
 
 }
 
-
+#[allow(dead_code)]
+impl Method {
+	pub fn str_to_method(method: &str) -> Option<Method> {
+		match method {
+			"GET" => Some(Method::GET),
+			"POST" => Some(Method::POST),
+			"DELETE" => Some(Method::DELETE),
+			"OPTIONS" => Some(Method::OPTIONS),
+			"HEAD" => Some(Method::HEAD),
+			"PUT" => Some(Method::PUT),
+			"CONNECT" => Some(Method::CONNECT),
+			"PATCH" => Some(Method::PATCH),
+			"TRACE" => Some(Method::TRACE),
+			_ => None
+		}
+	}
+	pub fn method_to_str(method: Method) -> String {
+		match method {
+			Method::UNDEFINED => "UNDIFINED".to_string(),
+			Method::GET => "GET".to_string(),
+			Method::POST => "POST".to_string(),
+			Method::DELETE => "DELETE".to_string(),
+			Method::HEAD => "HEAD".to_string(),
+			Method::PUT => "PUT".to_string(),
+			Method::CONNECT => "CONNECT".to_string(),
+			Method::PATCH => "PATCH".to_string(),
+			Method::TRACE => "TRACE".to_string(),
+			Method::OPTIONS => "OPTIONS".to_string(),
+		}
+	}
+}
 
 /*-----------------ERROR CODES-----------------*/
 

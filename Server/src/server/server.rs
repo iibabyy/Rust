@@ -8,22 +8,30 @@ use crate::{client::client::Client, request::request::Request, traits::config::C
 
 #[derive(Clone, Debug)]
 pub struct Server {
-	pub(self) port: Option<u16>,
-	pub(self) clients: HashMap<u16, Arc<Client>>,
-	pub(self) client_max_body_size: Option<u64>,
-	pub(self) default: bool,
-	pub(self) root: Option<PathBuf>,
-	pub(self) name: Option<Vec<String>>,
-	pub(self) index: Option<String>,
-	pub(self) return_: Option<(u16, Option<String>)>,
-	pub(self) error_pages: HashMap<u16, String>,
-	pub(self) error_redirect: HashMap<u16, (Option<u16>, String)>,
-	pub(self) auto_index: bool,
-	pub(self) methods: Option<Vec<String>>,
-	pub(self) infos: HashMap<String, Vec<String>>,
-	pub(self) locations: HashMap<PathBuf, Location>,
-	pub(self) cgi: HashMap<String, PathBuf>,
+	port: Option<u16>,
+	clients: Vec<Arc<Client>>,
+	client_max_body_size: Option<u64>,
+	default: bool,
+	root: Option<PathBuf>,
+	name: Option<Vec<String>>,
+	index: Option<String>,
+	return_: Option<(u16, Option<String>)>,
+	error_pages: HashMap<u16, String>,
+	error_redirect: HashMap<u16, (Option<u16>, String)>,
+	auto_index: bool,
+	methods: Option<Vec<String>>,
+	infos: HashMap<String, Vec<String>>,
+	locations: HashMap<PathBuf, Location>,
+	cgi: HashMap<String, PathBuf>,
 }
+
+
+
+/*------------------------------------------------------------------------------------------------------*/
+/*----------------------------------------------[ Server ]----------------------------------------------*/
+/*------------------------------------------------------------------------------------------------------*/
+
+
 
 impl Server {
 
@@ -37,17 +45,18 @@ impl Server {
 		println!("------[Server listening on {ip}::{}]------", self.port.unwrap());
 		let server = Arc::new(self);
 		loop {
-			let (mut stream, _) = listener.accept().await?;
-			println!("------[Connection accepted]------");
+			let (stream, addr) = listener.accept().await?;
+			println!("------[Connection accepted: {addr}]------");
 			let server_instance = Arc::clone(&server);
 			println!("fd: {:#?}", stream.as_fd().try_clone_to_owned().unwrap());
 			tokio::spawn( async move {
-				server_instance.handle_client(&mut stream).await
+				server_instance.handle_client(stream).await
 			});
 		}
 	}
 
-	async fn handle_client(&self, stream: &mut TcpStream) {
+	async fn handle_client(&self, mut stream: TcpStream) {
+		
 		let response_code = 200;
 		let mut buffer = [0; 65536];
 		// let client = 
@@ -55,7 +64,7 @@ impl Server {
 		//	getting request
 		stream.read(&mut buffer).await.expect("failed to receive request !");
 		let buffer = String::from_utf8_lossy(&buffer[..]);
-		let request = match Request::deserialize(buffer.into_owned()) {
+		let request = match Request::try_from(buffer.into_owned()) {
 			Ok(request) => request,
 			Err((code, str)) => {
 				println!("Error: {str}");
@@ -72,7 +81,10 @@ impl Server {
 }
 
 
+/*---------------------------------------------------------------*/
 /*--------------------------[ UTILS ]--------------------------*/
+/*---------------------------------------------------------------*/
+
 
 #[allow(dead_code)]
 impl Server {
@@ -95,7 +107,7 @@ impl Server {
 			return_: None,
 			auto_index: false,
 			error_pages: HashMap::new(),
-			clients: HashMap::new(),
+			clients: Vec::new(),
 			error_redirect: HashMap::new(),
 			infos: HashMap::new(),
 			locations: HashMap::new(),
@@ -117,6 +129,27 @@ impl Server {
 		Ok(serv)
 	}
 
+	fn new_client_from(&mut self, stream: TcpStream) -> &Arc<Client> {
+		let client = Arc::new(Client::new(stream));
+		self.clients.push(client);
+		self.clients.last().unwrap()
+	}
+
+	fn get_client_from(&self, stream: TcpStream) -> Arc::<Client> {
+		for client in self.clients {
+			stream.rea
+		}
+	}
+
+}
+
+
+/*---------------------------------------------------------------*/
+/*--------------------------[ PARSING ]--------------------------*/
+/*---------------------------------------------------------------*/
+
+
+impl Server {
 	fn add_directive(&mut self, name: String, infos: Vec<String>) -> Result<(), String> {
 		match name.as_str() {
 			"root" => {		// ROOT
@@ -166,7 +199,16 @@ impl Server {
 
 		Ok(())
 	}
+}
 
+
+/*---------------------------------------------------------------*/
+/*----------------------[ GETTER / SETTER ]----------------------*/
+/*---------------------------------------------------------------*/
+
+
+#[allow(dead_code)]
+impl Server {
 	pub fn is_default(&self) -> bool {
         self.default
     }
@@ -210,7 +252,11 @@ impl Config for Server {
 	fn port(&self) -> Option<u16> { self.port }
 }
 
-/*--------------------------[ LOCATIONS ]--------------------------*/
+/*-------------------------------------------------------------------------------------------------------*/
+
+/*---------------------------------------------------------------*/
+/*-------------------------[ LOCATIONS ]-------------------------*/
+/*---------------------------------------------------------------*/
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
