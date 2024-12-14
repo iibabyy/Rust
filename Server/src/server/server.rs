@@ -137,7 +137,7 @@ impl Server {
 
 	fn get_client_from(&self, stream: TcpStream) -> Arc::<Client> {
 		for client in self.clients {
-			stream.rea
+			stream
 		}
 	}
 

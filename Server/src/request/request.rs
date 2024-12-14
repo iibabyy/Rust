@@ -144,9 +144,9 @@ impl Request {
 
 
 		let method = split[0];
-		self.method = match Method::str_to_method(method) {
-			Some(method) => method,
-			None => { return Err((501, format!("invlid header: unknown method {method}"))) }
+		self.method = match Method::try_from(method) {
+			Ok(method) => method,
+			Err(e) => { return Err((501, format!("invlid header: {e}"))) }
 		};
 
 		self.path = PathBuf::from(split[1]);
@@ -191,24 +191,27 @@ impl Request {
 
 }
 
-#[allow(dead_code)]
-impl Method {
-	pub fn str_to_method(method: &str) -> Option<Method> {
+impl TryFrom<&str> for Method {
+	type Error = String;
+	fn try_from(method: &str) -> Result<Self, Self::Error> {
 		match method {
-			"GET" => Some(Method::GET),
-			"POST" => Some(Method::POST),
-			"DELETE" => Some(Method::DELETE),
-			"OPTIONS" => Some(Method::OPTIONS),
-			"HEAD" => Some(Method::HEAD),
-			"PUT" => Some(Method::PUT),
-			"CONNECT" => Some(Method::CONNECT),
-			"PATCH" => Some(Method::PATCH),
-			"TRACE" => Some(Method::TRACE),
-			_ => None
+			"GET" => Ok(Method::GET),
+			"POST" => Ok(Method::POST),
+			"DELETE" => Ok(Method::DELETE),
+			"OPTIONS" => Ok(Method::OPTIONS),
+			"HEAD" => Ok(Method::HEAD),
+			"PUT" => Ok(Method::PUT),
+			"CONNECT" => Ok(Method::CONNECT),
+			"PATCH" => Ok(Method::PATCH),
+			"TRACE" => Ok(Method::TRACE),
+			_ => Err(format!("unknown method: {method}"))
 		}
 	}
-	pub fn method_to_str(method: Method) -> String {
-		match method {
+}
+
+impl Into<String> for Method {
+	fn into(self) -> String {
+		match self {
 			Method::UNDEFINED => "UNDIFINED".to_string(),
 			Method::GET => "GET".to_string(),
 			Method::POST => "POST".to_string(),
@@ -220,6 +223,7 @@ impl Method {
 			Method::TRACE => "TRACE".to_string(),
 			Method::OPTIONS => "OPTIONS".to_string(),
 		}
+		
 	}
 }
 
