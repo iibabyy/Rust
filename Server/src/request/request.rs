@@ -1,6 +1,8 @@
 
 
-use std::{collections::HashMap, ops::{Deref, DerefMut}, path::PathBuf, str::Split};
+use std::{collections::HashMap, fmt::Display, path::PathBuf, str::Split};
+
+use tokio::{io::AsyncReadExt, net::{TcpSocket, TcpStream}};
 
 use crate::traits::http_message::HttpMessage;
 
@@ -18,12 +20,27 @@ pub enum Method {
 	CONNECT,
 }
 
+impl Default for Method {
+    fn default() -> Self {
+        Self::UNDEFINED
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum State {
 	Undefined,
 	OnHeader,
 	OnBody,
 	Finished,
+}
+
+impl State {
+	pub fn is(&self, other: Self) -> bool {
+		self.eq(&other)
+	}
+	pub fn is_not(&self, other: Self) -> bool {
+		self.eq(&other)
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +60,7 @@ pub struct Request {
 
 impl TryFrom<String> for Request {
 	type Error = (u16, String);
-	fn try_from(value: String) -> Result<Self, Self::Error> {
+	fn try_from(value: String) -> Result<Request, Self::Error> {
 		let mut request = Request {
 			method: Method::UNDEFINED,
 			path: PathBuf::new(),
@@ -76,13 +93,17 @@ impl Request {
 			Some((header, body)) => (header, body)
 		};
 		// Header complete
-		self.raw_header = header.to_string();
+		self.raw_header.push_str(header);
 		self.state = State::OnHeader;
 		if body.is_empty() == false {
 			self.raw_body = Some(body.to_string());
 		}
 
-		self.deserialize()
+		self.deserialize()?;
+		self.raw_header.clear();
+		self.state = if self.raw_body.is_some() { State::OnBody } else { State::Finished };
+
+		Ok(())
 	}
 
 	fn deserialize(&mut self) -> Result<(), (u16, String)> {
@@ -150,7 +171,7 @@ impl Request {
 		};
 
 		self.path = PathBuf::from(split[1]);
-		
+
 		Ok(())
 	}
 
@@ -287,6 +308,7 @@ impl Into<String> for Method {
 // codes_responses[450] = "Blocked by Windows Parental Controls";
 // codes_responses[451] = "Unavailable For Legal Reasons";
 // codes_responses[456] = "Unrecoverable Erstatus()";
+// codes_responses[500] = "Internal Server Error";
 // codes_responses[501] = "Method Not Implemented";
 // codes_responses[505] = "HTTP Version not supported";
 // codes_responses[506] = "Variant Also Negotiates";

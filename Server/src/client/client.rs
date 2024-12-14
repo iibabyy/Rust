@@ -1,6 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use nom::ErrorConvert;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
 use crate::request::request::{Request, State};

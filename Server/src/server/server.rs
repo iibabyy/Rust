@@ -1,14 +1,16 @@
-use std::{collections::HashMap, net::{IpAddr, SocketAddr}, os::fd::AsFd, path::PathBuf, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, fmt::Debug, io::Error, net::{IpAddr, SocketAddr}, os::fd::AsFd, path::PathBuf, sync::Arc};
 
-use tokio::{io::{self, AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
+use tokio::{io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufStream}, net::{TcpListener, TcpStream}, stream};
+use tokio_util::sync::CancellationToken;
 
-use crate::{client::client::Client, request::request::Request, traits::config::Config, Parsing::*};
+use crate::{client::client::Client, request::request::{Request, State}, traits::config::Config, Parsing::*};
 
 /*--------------------------[ SERVER ]--------------------------*/
 
 #[derive(Clone, Debug)]
 pub struct Server {
 	port: Option<u16>,
+	socket: Option<SocketAddr>,
 	clients: Vec<Arc<Client>>,
 	client_max_body_size: Option<u64>,
 	default: bool,
@@ -28,54 +30,99 @@ pub struct Server {
 
 
 /*------------------------------------------------------------------------------------------------------*/
-/*----------------------------------------------[ Server ]----------------------------------------------*/
+/*												SERVER													*/
 /*------------------------------------------------------------------------------------------------------*/
 
 
 
 impl Server {
 
-	pub async fn run(self, ip: IpAddr) -> Result<(), io::Error>{
+	pub async fn run(mut self, ip: IpAddr, cancel_token: CancellationToken) -> Result<(), ()>{
 		if self.port.is_none() {
 			println!("------[No port to listen -> no bind]------");
 			return Ok(())
 		}
 
-		let listener = TcpListener::bind(SocketAddr::new(ip, self.port.unwrap())).await?;
+		self.socket = Some(SocketAddr::new(ip, self.port.unwrap()));
+		let listener = match TcpListener::bind(self.socket.unwrap().clone()).await {
+			Ok(listener) => listener,
+			Err(e) => {
+				eprintln!("Server ({}): failed to bind: {e}", self.socket.unwrap());
+				return Err(());
+			}
+		};
 		println!("------[Server listening on {ip}::{}]------", self.port.unwrap());
 		let server = Arc::new(self);
+
 		loop {
-			let (stream, addr) = listener.accept().await?;
-			println!("------[Connection accepted: {addr}]------");
-			let server_instance = Arc::clone(&server);
-			println!("fd: {:#?}", stream.as_fd().try_clone_to_owned().unwrap());
-			tokio::spawn( async move {
-				server_instance.handle_client(stream).await
-			});
+			let cancel = cancel_token.clone();
+			tokio::select! {
+				Ok((stream, addr)) = listener.accept() => {
+					println!("------[Connection accepted: {addr}]------");
+					let server_instance = Arc::clone(&server);
+					tokio::spawn( async move {
+						server_instance.handle_client(stream).await
+					});
+				}
+				_ = cancel.cancelled() => {
+					println!("------[Server ({}): stop listening]------", server.socket.unwrap());
+					return Ok(());
+				}
+			}
 		}
 	}
 
 	async fn handle_client(&self, mut stream: TcpStream) {
 		
-		let response_code = 200;
-		let mut buffer = [0; 65536];
-		// let client = 
-
 		//	getting request
-		stream.read(&mut buffer).await.expect("failed to receive request !");
-		let buffer = String::from_utf8_lossy(&buffer[..]);
-		let request = match Request::try_from(buffer.into_owned()) {
-			Ok(request) => request,
-			Err((code, str)) => {
-				println!("Error: {str}");
-				stream.write(format!("HTTP/1.1 {code} OK\r\n\r\n{str}\r\n").as_bytes()).await.expect("failed to send response");
-				return ;
+		loop {
+			let buffer = match Self::read_from(&mut stream).await {
+				Ok(buf) => buf,
+				Err(e) => {
+					println!("Server {}: failed to read from client: {e}", self.socket.unwrap());
+					return ;
+				}
+			};
+			let mut request = match Request::try_from(buffer) {
+				Ok(request) => request,
+				Err((code, str)) => {
+					println!("Error: {str}");
+					stream.write(format!("HTTP/1.1 {code} OK\r\n\r\n{str}\r\n").as_bytes()).await.expect("failed to send response");
+					return ;
+				}
+			};
+
+			while request.state().is_not(State::OnHeader) {
+				let buffer = match Self::read_from(&mut stream).await {
+					Ok(buf) => buf,
+					Err(e) => {
+						println!("Server {}: failed to read from client: {e}", self.socket.unwrap());
+						return ;
+					}
+				};
+
+				match request.push(buffer) {
+					Ok(_) => (),
+					Err((code, msg)) => {
+						self.send_error_response_to(stream, code, msg).await;
+						return ;
+					}
+				}
 			}
-		};
-		println!("Request received: {:#?}", request);
-		
-		//	sending RESPONSE
-		stream.write(format!("HTTP/1.1 {response_code} OK\r\n\r\nHello from server !\r\n").as_bytes()).await.expect("failed to send response");
+
+			println!("Request received:\n{:#?}", request);
+
+			//	sending RESPONSE
+			if let Err(err) = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 19\r\n\r\nHello from server !\r\n").await {
+				println!("Server ({}): failed to send response: {err}", self.socket.unwrap());
+				break;
+			}
+			println!("Response Send !");
+			
+			if request.keep_connection_alive() == false {
+				break;
+			}
+		}
 	}
 
 }
@@ -89,32 +136,23 @@ impl Server {
 #[allow(dead_code)]
 impl Server {
 
-	pub fn init_servers(configs: Vec<ServerBlock>) -> Result<Vec<Self>, String> {
-		let mut servers = Vec::new();
-
-		for server_config in configs {
-			servers.push(Self::new(server_config)?);
-		}
-
-		Ok(servers)
-	}
-
 	pub fn new(config: ServerBlock) -> Result<Self, String> {
 		let mut serv = Server {
+			port: None,
+			socket: None,
+			root: None,
+			clients: Vec::new(),
 			client_max_body_size: None,
 			index: None,
 			methods: None,
 			return_: None,
 			auto_index: false,
 			error_pages: HashMap::new(),
-			clients: Vec::new(),
 			error_redirect: HashMap::new(),
 			infos: HashMap::new(),
 			locations: HashMap::new(),
 			cgi: HashMap::new(),
-			port: None,
 			default: false,
-			root: None,
 			name: None,
 		};
 		for directive in config.directives {
@@ -129,16 +167,48 @@ impl Server {
 		Ok(serv)
 	}
 
+	pub fn init_servers(configs: Vec<ServerBlock>) -> Result<Vec<Self>, String> {
+		let mut servers = Vec::new();
+
+		for server_config in configs {
+			servers.push(Self::new(server_config)?);
+		}
+
+		Ok(servers)
+	}
+
+	async fn read_from(mut stream: impl AsyncRead + Unpin) -> Result<String, Error> {
+		let mut buffer = [0;65536];
+
+		match stream.read(&mut buffer).await {
+			Ok(n) => Ok(String::from_utf8_lossy(&buffer[..n]).into_owned()),
+			Err(e) => Err(e),
+		}
+	}
+
+	async fn send_error_response_to(&self, mut stream: impl AsyncWrite + Unpin, error_code: u16, error_msg: String) {
+		todo!()
+	}
+
+	// async fn create_request_from(&mut self, stream: &mut TcpStream) -> Result<Request, ()> {
+	// 	let mut buffer = [0;65536];
+
+	// 	let buffer = match stream.read(&mut buffer).await {
+	// 		Ok(n) => String::from_utf8_lossy(&buffer[..n]).into_owned(),
+	// 		Err(_) => return Err(()),
+	// 	};
+
+	// 	match Request::try_from(buffer) {
+	// 		Ok(request) => Ok(request),
+	// 		Err(_) => Err(())
+	// 	}
+
+	// }
+
 	fn new_client_from(&mut self, stream: TcpStream) -> &Arc<Client> {
 		let client = Arc::new(Client::new(stream));
 		self.clients.push(client);
 		self.clients.last().unwrap()
-	}
-
-	fn get_client_from(&self, stream: TcpStream) -> Arc::<Client> {
-		for client in self.clients {
-			stream
-		}
 	}
 
 }
