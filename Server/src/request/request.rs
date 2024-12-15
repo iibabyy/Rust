@@ -1,8 +1,9 @@
-
-
 use std::{collections::HashMap, fmt::Display, path::PathBuf, str::Split};
 
-use tokio::{io::AsyncReadExt, net::{TcpSocket, TcpStream}};
+use tokio::{
+    io::AsyncReadExt,
+    net::{TcpSocket, TcpStream},
+};
 
 use crate::traits::http_message::HttpMessage;
 
@@ -13,188 +14,204 @@ use crate::traits::http_message::HttpMessage;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Request {
-	method: Method,
-	http_version: String,
-	path: PathBuf,
-	accept: Option<String>,
-	host: Option<String>,
-	headers: HashMap<String, String>,
-	content_length: Option<u64>,
-	raw_body: Option<String>,
-	raw_header: String,
-	state: State,
-	keep_connection_alive: bool,
+    method: Method,
+    http_version: String,
+    path: PathBuf,
+    accept: Option<String>,
+    host: Option<String>,
+    headers: HashMap<String, String>,
+    content_length: Option<u64>,
+    raw_body: Option<String>,
+    raw_header: String,
+    state: State,
+    keep_connection_alive: bool,
 }
 
 impl TryFrom<String> for Request {
-	type Error = u16;
-	fn try_from(value: String) -> Result<Request, Self::Error> {
-		let mut request = Request {
-			method: Method::UNDEFINED,
-			path: PathBuf::new(),
-			http_version: String::new(),
-			accept: None,
-			host: None,
-			headers: HashMap::new(),
-			content_length: None,
-			raw_body: None,
-			raw_header: String::new(),
-			keep_connection_alive: true,
-			state: State::Undefined,
-		};
+    type Error = u16;
+    fn try_from(value: String) -> Result<Request, Self::Error> {
+        let mut request = Request {
+            method: Method::UNDEFINED,
+            path: PathBuf::new(),
+            http_version: String::new(),
+            accept: None,
+            host: None,
+            headers: HashMap::new(),
+            content_length: None,
+            raw_body: None,
+            raw_header: String::new(),
+            keep_connection_alive: true,
+            state: State::Undefined,
+        };
 
-		request.push(value)?;
-		Ok(request)
-	}
+        request.push(value)?;
+        Ok(request)
+    }
 }
 
 impl HttpMessage for Request {}
 
 impl Request {
-	pub fn push(&mut self, request: String) -> Result<(), u16> {
-		if self.state == State::OnBody { todo!() }
+    pub fn push(&mut self, request: String) -> Result<(), u16> {
+        if self.state == State::OnBody {
+            todo!()
+        }
 
-		let (header, body) = match request.split_once("\r\n\r\n") {
-			None => {	// Header not finished
-				self.raw_header.push_str(&request);
-				return Ok(());
-			}
-			Some((header, body)) => (header, body)
-		};
-		// Header complete
-		self.raw_header.push_str(header);
-		self.state = State::OnHeader;
-		if body.is_empty() == false {
-			self.raw_body = Some(body.to_owned());
-		}
+        let (header, body) = match request.split_once("\r\n\r\n") {
+            None => {
+                // Header not finished
+                self.raw_header.push_str(&request);
+                return Ok(());
+            }
+            Some((header, body)) => (header, body),
+        };
+        // Header complete
+        self.raw_header.push_str(header);
+        self.state = State::OnHeader;
+        if body.is_empty() == false {
+            self.raw_body = Some(body.to_owned());
+        }
 
-		self.deserialize()?;
-		self.raw_header.clear();
-		self.state = if self.raw_body.is_some() { State::OnBody } else { State::Finished };
+        self.deserialize()?;
+        self.raw_header.clear();
+        self.state = if self.raw_body.is_some() {
+            State::OnBody
+        } else {
+            State::Finished
+        };
 
-		Ok(())
-	}
+        Ok(())
+    }
 
-	fn deserialize(&mut self) -> Result<(), u16> {
-		let temp = self.raw_header.clone();
-		let mut headers = temp.split("\r\n");
+    fn deserialize(&mut self) -> Result<(), u16> {
+        let temp = self.raw_header.clone();
+        let mut headers = temp.split("\r\n");
 
-		let first_line = headers.next();
-		if first_line.is_none() {
-			println!("empty header");
-			return Err(400)
-		}
-	
-		self.parse_first_line(first_line.unwrap())?;
-		self.parse_other_lines(headers)?;
+        let first_line = headers.next();
+        if first_line.is_none() {
+            println!("empty header");
+            return Err(400);
+        }
 
-		Ok(())
+        self.parse_first_line(first_line.unwrap())?;
+        self.parse_other_lines(headers)?;
 
-	}
+        Ok(())
+    }
 
-	fn parse_other_lines(&mut self, headers: Split<'_, &str>) -> Result<(), u16> {
+    fn parse_other_lines(&mut self, headers: Split<'_, &str>) -> Result<(), u16> {
+        for header in headers {
+            if header.is_empty() {
+                break;
+            } // end of header
 
-		for header in headers {
-			if header.is_empty() { break; }		// end of header
+            let split = header.split_once(":");
+            if split.is_none() {
+                eprintln!("invalid header: {}", header);
+                return Err(400);
+            }
 
-			let split = header.split_once(":");
-			if split.is_none() {
-				eprintln!("invalid header: {}", header);
-				return Err(400)
-			}
+            let name = split.unwrap().0;
+            let value = split.unwrap().1;
 
-			let name =  split.unwrap().0;
-			let value = split.unwrap().1;
+            match name {
+                "Host" => {
+                    if self.host.is_none() {
+                        self.host = Some(value.to_owned())
+                    } else {
+                        println!("duplicate header: Host");
+                        return Err(400);
+                    }
+                }
+                "Connection" => {
+                    if value == "close" {
+                        self.keep_connection_alive = false
+                    }
+                }
+                "Accept" => {
+                    if self.accept.is_none() {
+                        self.accept = Some(value.to_owned())
+                    }
+                    // set if don't exists
+                    else {
+                        self.accept = Some(format!("{} {value}", self.accept.as_ref().unwrap()))
+                    } // concat a space (' ') and the value if already exists
+                }
+                _ => {
+                    self.headers
+                        .entry(name.to_owned()) // finding key name
+                        .and_modify(|val|	// modify if exists
+						val.push_str(format!("  {value}").as_str()))
+                        .or_insert(value.to_owned()); // else, insert
+                }
+            }
+        }
 
-			match name {
-				"Host" => {
-					if	self.host.is_none() {
-						self.host = Some(value.to_owned())
-					} else {
-						println!("duplicate header: Host");
-						return Err(400)
-					}
-				}
-				"Connection" => {
-					if value == "close" {self.keep_connection_alive = false}
-				}
-				"Accept" => {
-					if	self.accept.is_none()	{self.accept = Some(value.to_owned())}	// set if don't exists
-					else						{self.accept = Some(format!("{} {value}", self.accept.as_ref().unwrap()))} // concat a space (' ') and the value if already exists 
-				}
-				_ => {
-					self.headers.entry(name.to_owned())	// finding key name
-					.and_modify(|val|	// modify if exists
-						val.push_str(format!("  {value}").as_str())
-					).or_insert(value.to_owned());	// else, insert
-				}
-			}
-		}
+        Ok(())
+    }
 
-		Ok(())
-	}
-	
-	fn parse_first_line(&mut self, line: &str) -> Result<(), u16> {
-		let split: Vec<&str> = line.split_whitespace().collect();
+    fn parse_first_line(&mut self, line: &str) -> Result<(), u16> {
+        let split: Vec<&str> = line.split_whitespace().collect();
 
-		if split.len() != 3 {
-			println!("invlid header: first line invalid: [{line}]");
-			return Err(400)
-		}	// Bad Request
-		
-		let method = split[0];
-		self.method = match Method::try_from(method) {
-			Ok(method) => method,
-			Err(e) => {
-				format!("invlid header: {e}");
-				return Err(501)
-			}
-		};
+		eprintln!("Parsing first line");
+        if split.len() != 3 {
+            eprintln!("invlid header: first line invalid: [{line}]");
+            return Err(400);
+        } // Bad Request
 
-		self.path = PathBuf::from(split[1]);
-		self.http_version = split[2].to_owned();
-		Ok(())
-	}
+        let method = split[0];
+        self.method = match Method::try_from_str(method) {
+            Ok(method) => method,
+            Err(e) => {
+                println!("invalid header: {e}");
+                return Err(501);
+            }
+        };
 
-	pub fn get(&self, header: String) -> Option<&String> {
-		match self.headers.get(&header) {
-			None => None,
-			Some(value) => Some(value),
-		}
-	}
+		eprintln!("Parsing OK");
+        self.path = PathBuf::from(split[1]);
+        self.http_version = split[2].to_owned();
+        Ok(())
+    }
 
-	pub fn state(&self) -> &State {
+    pub fn get(&self, header: String) -> Option<&String> {
+        match self.headers.get(&header) {
+            None => None,
+            Some(value) => Some(value),
+        }
+    }
+
+    pub fn state(&self) -> &State {
         &self.state
     }
 
-	pub fn method(&self) -> &Method {
+    pub fn method(&self) -> &Method {
         &self.method
     }
 
-	pub fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &PathBuf {
         &self.path
     }
 
-	pub fn accept(&self) -> Option<&String> {
+    pub fn accept(&self) -> Option<&String> {
         self.accept.as_ref()
     }
 
-	pub fn host(&self) -> Option<&String> {
+    pub fn host(&self) -> Option<&String> {
         self.host.as_ref()
     }
 
-	pub fn content_length(&self) -> Option<u64> {
+    pub fn content_length(&self) -> Option<u64> {
         self.content_length
     }
 
-	pub fn keep_connection_alive(&self) -> bool {
+    pub fn keep_connection_alive(&self) -> bool {
         self.keep_connection_alive
     }
 
-pub fn http_version(&self) -> &str {
+    pub fn http_version(&self) -> &str {
         &self.http_version
     }
-
 }
 
 /*------------------------------------------------------------------------------------*/
@@ -203,17 +220,17 @@ pub fn http_version(&self) -> &str {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Method {
-	UNDEFINED,
-	GET,
-	POST,
-	DELETE,
-	OPTIONS,
-	HEAD,
-	PUT,
-	PATCH,
-	TRACE,
-	CONNECT,
-	UNKNOWN,
+    UNDEFINED,
+    GET,
+    POST,
+    DELETE,
+    OPTIONS,
+    HEAD,
+    PUT,
+    PATCH,
+    TRACE,
+    CONNECT,
+    UNKNOWN,
 }
 
 impl Default for Method {
@@ -223,39 +240,55 @@ impl Default for Method {
 }
 
 impl From<&str> for Method {
-	fn from(method: &str) -> Self {
-		match method {
-			"GET" => Method::GET,
-			"POST" => Method::POST,
-			"DELETE" => Method::DELETE,
-			"OPTIONS" => Method::OPTIONS,
-			"HEAD" => Method::HEAD,
-			"PUT" => Method::PUT,
-			"CONNECT" => Method::CONNECT,
-			"PATCH" => Method::PATCH,
-			"TRACE" => Method::TRACE,
-			_ => Method::UNKNOWN,
-		}
-	}
+    fn from(method: &str) -> Self {
+        match method {
+            "GET" => Method::GET,
+            "POST" => Method::POST,
+            "DELETE" => Method::DELETE,
+            "OPTIONS" => Method::OPTIONS,
+            "HEAD" => Method::HEAD,
+            "PUT" => Method::PUT,
+            "CONNECT" => Method::CONNECT,
+            "PATCH" => Method::PATCH,
+            "TRACE" => Method::TRACE,
+            _ => Method::UNKNOWN,
+        }
+    }
 }
 
-impl <'a>TryInto<&'a str> for Method {
-	type Error = ();
-	fn try_into(self) -> Result<&'a str, Self::Error> {
-		match self {
-			Method::GET => Ok("GET"),
-			Method::POST => Ok("POST"),
-			Method::DELETE => Ok("DELETE"),
-			Method::HEAD => Ok("HEAD"),
-			Method::PUT => Ok("PUT"),
-			Method::CONNECT => Ok("CONNECT"),
-			Method::PATCH => Ok("PATCH"),
-			Method::TRACE => Ok("TRACE"),
-			Method::OPTIONS => Ok("OPTIONS"),
-			Method::UNDEFINED | Method::UNKNOWN => Err(()),
-		}
-		
-	}
+impl<'a> TryInto<&'a str> for Method {
+    type Error = ();
+    fn try_into(self) -> Result<&'a str, Self::Error> {
+        match self {
+            Method::GET => Ok("GET"),
+            Method::POST => Ok("POST"),
+            Method::DELETE => Ok("DELETE"),
+            Method::HEAD => Ok("HEAD"),
+            Method::PUT => Ok("PUT"),
+            Method::CONNECT => Ok("CONNECT"),
+            Method::PATCH => Ok("PATCH"),
+            Method::TRACE => Ok("TRACE"),
+            Method::OPTIONS => Ok("OPTIONS"),
+            Method::UNDEFINED | Method::UNKNOWN => Err(()),
+        }
+    }
+}
+
+impl Method {
+    pub fn try_from_str(method: &str) -> Result<Self, String> {
+        match method {
+            "GET" => Ok(Method::GET),
+            "POST" => Ok(Method::POST),
+            "DELETE" => Ok(Method::DELETE),
+            "OPTIONS" => Ok(Method::OPTIONS),
+            "HEAD" => Ok(Method::HEAD),
+            "PUT" => Ok(Method::PUT),
+            "CONNECT" => Ok(Method::CONNECT),
+            "PATCH" => Ok(Method::PATCH),
+            "TRACE" => Ok(Method::TRACE),
+            _ => Err("unknown method".to_string()),
+        }
+    }
 }
 
 /*------------------------------------------------------------------------------------*/
@@ -264,19 +297,19 @@ impl <'a>TryInto<&'a str> for Method {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum State {
-	Undefined,
-	OnHeader,
-	OnBody,
-	Finished,
+    Undefined,
+    OnHeader,
+    OnBody,
+    Finished,
 }
 
 impl State {
-	pub fn is(&self, other: Self) -> bool {
-		self.eq(&other)
-	}
-	pub fn is_not(&self, other: Self) -> bool {
-		self.eq(&other)
-	}
+    pub fn is(&self, other: Self) -> bool {
+        self.eq(&other)
+    }
+    pub fn is_not(&self, other: Self) -> bool {
+        self.eq(&other)
+    }
 }
 
 /*-----------------ERROR CODES-----------------*/
@@ -356,7 +389,6 @@ impl State {
 // codes_responses[525] = "SSL Handshake Failed";
 // codes_responses[526] = "Invalid SSL Certificate";
 // codes_responses[527] = "Railgun Error";
-
 
 /*-----------------CONTENT-TYPES-----------------*/
 

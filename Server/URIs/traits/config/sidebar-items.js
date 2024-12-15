@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"trait":["Config"]};
+window.SIDEBAR_ITEMS = {"fn":["is_redirect_status_code"],"trait":["Config"]};

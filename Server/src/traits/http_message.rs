@@ -1,4 +1,1 @@
-
-pub trait HttpMessage {
-	
-}
+pub trait HttpMessage {}
