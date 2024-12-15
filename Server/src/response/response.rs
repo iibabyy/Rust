@@ -1,12 +1,22 @@
-use std::{collections::HashMap, hash::Hash, io::{Error, ErrorKind}, path::Path};
+use std::{collections::HashMap, fmt::format, hash::Hash, io::{Error, ErrorKind}, path::Path};
 
 use lazy_static::lazy_static;
-use tokio::fs::File;
+use tokio::{fs::File, io::{AsyncReadExt, AsyncWriteExt}, net::TcpStream};
 
 pub struct Response {
 	code: ResponseCode,
 	headers: HashMap<String, String>,
 	file: Option<File>,
+}
+
+impl Default for Response {
+	fn default() -> Self {
+		Response {
+			code: ResponseCode::default(),
+			headers: HashMap::new(),
+			file: None,
+		}
+	}
 }
 
 impl Response {
@@ -18,31 +28,78 @@ impl Response {
 		}
 	}
 
-	pub async fn from_file(code: u16, file: &Path) -> Result<Response, Response> {
+	pub async fn send_to(&mut self, stream: &mut TcpStream) -> Result<(), Error> {
+		let header = self.serialize_header().await?;
+
+		let _ = stream.write_all(header.as_bytes()).await?;
+
+		if self.file.is_none() { return Ok(()) }
+
+		let mut buffer = [0; 65536];
+		loop {
+			let n = self.file.as_mut().unwrap().read(&mut buffer).await?;
+			if n == 0 { break }
+
+			let _ = stream.write_all(&buffer[..n]).await?;
+		}
+
+		stream.write(b"\r\n").await?;
+
+		Ok(())
+	}
+
+	pub async fn from_file(code: u16, file: &Path) -> Result<Response, ResponseCode> {
 		if file.is_dir() {
 			// TODO
-			return Err(Self::new(404));
+			return Err(ResponseCode::new(404));
 		} else if !file.is_file() {
-			return Err(Self::new(404));
+			return Err(ResponseCode::new(404));
 		}
 
 		let file = match File::open(file).await {
 			Ok(file) => file,
-			Err(err) => return Err(Response::new(ResponseCode::from_error(err.kind()).code())),
+			Err(err) => return Err(ResponseCode::from_error(err.kind())),
 		};
 
 		Ok(Response {
-			code: ResponseCode::new(200),
+			code: ResponseCode::new(code),
 			headers: HashMap::new(),
 			file: Some(file),
 		})
 
 	}
 
+	async fn serialize_header(&self) -> Result<String, Error> {
+		let response: String = format!("HTTP/1.1 {} {}\r\n", self.code.code(), self.code.to_string());
+		let mut headers: String = self.headers.iter().map(|(key, value)| format!("{key}: {value}")).collect::<Vec<String>>().join("\r\n");
+		
+		if self.file.is_some() {
+			let file_length = format!("Content-Length: {}\r\n", self.file.as_ref().unwrap().metadata().await?.len());
+			headers.push_str(&file_length);
+		}
+
+		Ok(format!("{response}{headers}\r\n"))
+	}
+
+	pub fn file(&self) -> Option<&File> {
+        self.file.as_ref()
+    }
+
+	pub fn set_file(&mut self, file: File) {
+        self.file = Some(file);
+    }
+
 }
 
-struct ResponseCode {
+#[derive(Clone)]
+pub struct ResponseCode {
 	code: u16,
+}
+
+impl Default for ResponseCode {
+	fn default() -> Self {
+		ResponseCode { code: 200 }
+	}
 }
 
 impl ResponseCode {

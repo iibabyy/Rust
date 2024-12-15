@@ -15,7 +15,7 @@ use std::net::IpAddr;
 #[tokio::main]
 async fn main() {
 	let cancel_token = CancellationToken::new();
-	let config = Parsing::get_config("conf.conf".to_string()).await;
+	let config = Parsing::get_config("conf.conf".to_owned()).await;
 	let servers = match Server::init_servers(config) {
 		Ok(vec) => vec,
 		Err(e) => {

@@ -6,47 +6,15 @@ use tokio::{io::AsyncReadExt, net::{TcpSocket, TcpStream}};
 
 use crate::traits::http_message::HttpMessage;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Method {
-	UNDEFINED,
-	GET,
-	POST,
-	DELETE,
-	OPTIONS,
-	HEAD,
-	PUT,
-	PATCH,
-	TRACE,
-	CONNECT,
-}
-
-impl Default for Method {
-    fn default() -> Self {
-        Self::UNDEFINED
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum State {
-	Undefined,
-	OnHeader,
-	OnBody,
-	Finished,
-}
-
-impl State {
-	pub fn is(&self, other: Self) -> bool {
-		self.eq(&other)
-	}
-	pub fn is_not(&self, other: Self) -> bool {
-		self.eq(&other)
-	}
-}
+/*------------------------------------------------------------------------------------*/
+/*										REQUEST										  */
+/*------------------------------------------------------------------------------------*/
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Request {
 	method: Method,
+	http_version: String,
 	path: PathBuf,
 	accept: Option<String>,
 	host: Option<String>,
@@ -59,11 +27,12 @@ pub struct Request {
 }
 
 impl TryFrom<String> for Request {
-	type Error = (u16, String);
+	type Error = u16;
 	fn try_from(value: String) -> Result<Request, Self::Error> {
 		let mut request = Request {
 			method: Method::UNDEFINED,
 			path: PathBuf::new(),
+			http_version: String::new(),
 			accept: None,
 			host: None,
 			headers: HashMap::new(),
@@ -82,7 +51,7 @@ impl TryFrom<String> for Request {
 impl HttpMessage for Request {}
 
 impl Request {
-	pub fn push(&mut self, request: String) -> Result<(), (u16, String)> {
+	pub fn push(&mut self, request: String) -> Result<(), u16> {
 		if self.state == State::OnBody { todo!() }
 
 		let (header, body) = match request.split_once("\r\n\r\n") {
@@ -96,7 +65,7 @@ impl Request {
 		self.raw_header.push_str(header);
 		self.state = State::OnHeader;
 		if body.is_empty() == false {
-			self.raw_body = Some(body.to_string());
+			self.raw_body = Some(body.to_owned());
 		}
 
 		self.deserialize()?;
@@ -106,12 +75,15 @@ impl Request {
 		Ok(())
 	}
 
-	fn deserialize(&mut self) -> Result<(), (u16, String)> {
+	fn deserialize(&mut self) -> Result<(), u16> {
 		let temp = self.raw_header.clone();
 		let mut headers = temp.split("\r\n");
 
 		let first_line = headers.next();
-		if first_line.is_none() { return Err((400, format!("empty header"))) }
+		if first_line.is_none() {
+			println!("empty header");
+			return Err(400)
+		}
 	
 		self.parse_first_line(first_line.unwrap())?;
 		self.parse_other_lines(headers)?;
@@ -120,14 +92,15 @@ impl Request {
 
 	}
 
-	fn parse_other_lines(&mut self, headers: Split<'_, &str>) -> Result<(), (u16, String)> {
+	fn parse_other_lines(&mut self, headers: Split<'_, &str>) -> Result<(), u16> {
 
 		for header in headers {
 			if header.is_empty() { break; }		// end of header
 
 			let split = header.split_once(":");
 			if split.is_none() {
-				return Err((400, format!("invalid header: {}", header)))
+				eprintln!("invalid header: {}", header);
+				return Err(400)
 			}
 
 			let name =  split.unwrap().0;
@@ -135,21 +108,25 @@ impl Request {
 
 			match name {
 				"Host" => {
-					if	self.host.is_none()		{self.host = Some(value.to_string())}
-					else						{ return Err((400, format!("duplicate header: Host"))) }
+					if	self.host.is_none() {
+						self.host = Some(value.to_owned())
+					} else {
+						println!("duplicate header: Host");
+						return Err(400)
+					}
 				}
 				"Connection" => {
 					if value == "close" {self.keep_connection_alive = false}
 				}
 				"Accept" => {
-					if	self.accept.is_none()	{self.accept = Some(value.to_string())}	// set if don't exists
+					if	self.accept.is_none()	{self.accept = Some(value.to_owned())}	// set if don't exists
 					else						{self.accept = Some(format!("{} {value}", self.accept.as_ref().unwrap()))} // concat a space (' ') and the value if already exists 
 				}
 				_ => {
-					self.headers.entry(name.to_string())	// finding key name
+					self.headers.entry(name.to_owned())	// finding key name
 					.and_modify(|val|	// modify if exists
 						val.push_str(format!("  {value}").as_str())
-					).or_insert(value.to_string());	// else, insert
+					).or_insert(value.to_owned());	// else, insert
 				}
 			}
 		}
@@ -157,21 +134,25 @@ impl Request {
 		Ok(())
 	}
 	
-	fn parse_first_line(&mut self, line: &str) -> Result<(), (u16, String)> {
+	fn parse_first_line(&mut self, line: &str) -> Result<(), u16> {
 		let split: Vec<&str> = line.split_whitespace().collect();
 
-		if split.len() != 3 { return Err((400, format!("invlid header: first line invalid: [{line}]"))) }	// Bad Request
-		if split[2] != "HTTP/1.1" { return Err((505, format!("invlid header: only HTTP/1.1 supported"))) }
-
-
+		if split.len() != 3 {
+			println!("invlid header: first line invalid: [{line}]");
+			return Err(400)
+		}	// Bad Request
+		
 		let method = split[0];
 		self.method = match Method::try_from(method) {
 			Ok(method) => method,
-			Err(e) => { return Err((501, format!("invlid header: {e}"))) }
+			Err(e) => {
+				format!("invlid header: {e}");
+				return Err(501)
+			}
 		};
 
 		self.path = PathBuf::from(split[1]);
-
+		self.http_version = split[2].to_owned();
 		Ok(())
 	}
 
@@ -210,41 +191,91 @@ impl Request {
         self.keep_connection_alive
     }
 
+pub fn http_version(&self) -> &str {
+        &self.http_version
+    }
+
 }
 
-impl TryFrom<&str> for Method {
-	type Error = String;
-	fn try_from(method: &str) -> Result<Self, Self::Error> {
+/*------------------------------------------------------------------------------------*/
+/*										METHOD										  */
+/*------------------------------------------------------------------------------------*/
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Method {
+	UNDEFINED,
+	GET,
+	POST,
+	DELETE,
+	OPTIONS,
+	HEAD,
+	PUT,
+	PATCH,
+	TRACE,
+	CONNECT,
+	UNKNOWN,
+}
+
+impl Default for Method {
+    fn default() -> Self {
+        Self::UNDEFINED
+    }
+}
+
+impl From<&str> for Method {
+	fn from(method: &str) -> Self {
 		match method {
-			"GET" => Ok(Method::GET),
-			"POST" => Ok(Method::POST),
-			"DELETE" => Ok(Method::DELETE),
-			"OPTIONS" => Ok(Method::OPTIONS),
-			"HEAD" => Ok(Method::HEAD),
-			"PUT" => Ok(Method::PUT),
-			"CONNECT" => Ok(Method::CONNECT),
-			"PATCH" => Ok(Method::PATCH),
-			"TRACE" => Ok(Method::TRACE),
-			_ => Err(format!("unknown method: {method}"))
+			"GET" => Method::GET,
+			"POST" => Method::POST,
+			"DELETE" => Method::DELETE,
+			"OPTIONS" => Method::OPTIONS,
+			"HEAD" => Method::HEAD,
+			"PUT" => Method::PUT,
+			"CONNECT" => Method::CONNECT,
+			"PATCH" => Method::PATCH,
+			"TRACE" => Method::TRACE,
+			_ => Method::UNKNOWN,
 		}
 	}
 }
 
-impl Into<String> for Method {
-	fn into(self) -> String {
+impl <'a>TryInto<&'a str> for Method {
+	type Error = ();
+	fn try_into(self) -> Result<&'a str, Self::Error> {
 		match self {
-			Method::UNDEFINED => "UNDIFINED".to_string(),
-			Method::GET => "GET".to_string(),
-			Method::POST => "POST".to_string(),
-			Method::DELETE => "DELETE".to_string(),
-			Method::HEAD => "HEAD".to_string(),
-			Method::PUT => "PUT".to_string(),
-			Method::CONNECT => "CONNECT".to_string(),
-			Method::PATCH => "PATCH".to_string(),
-			Method::TRACE => "TRACE".to_string(),
-			Method::OPTIONS => "OPTIONS".to_string(),
+			Method::GET => Ok("GET"),
+			Method::POST => Ok("POST"),
+			Method::DELETE => Ok("DELETE"),
+			Method::HEAD => Ok("HEAD"),
+			Method::PUT => Ok("PUT"),
+			Method::CONNECT => Ok("CONNECT"),
+			Method::PATCH => Ok("PATCH"),
+			Method::TRACE => Ok("TRACE"),
+			Method::OPTIONS => Ok("OPTIONS"),
+			Method::UNDEFINED | Method::UNKNOWN => Err(()),
 		}
 		
+	}
+}
+
+/*------------------------------------------------------------------------------------*/
+/*										STATE										  */
+/*------------------------------------------------------------------------------------*/
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum State {
+	Undefined,
+	OnHeader,
+	OnBody,
+	Finished,
+}
+
+impl State {
+	pub fn is(&self, other: Self) -> bool {
+		self.eq(&other)
+	}
+	pub fn is_not(&self, other: Self) -> bool {
+		self.eq(&other)
 	}
 }
 

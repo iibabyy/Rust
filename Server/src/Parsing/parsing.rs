@@ -44,7 +44,7 @@ fn directive(mut input: &str) -> IResult<&str, (String, Vec<String>)> {
     let (mut input, values) = many0(preceded(space1, identifier))(input)?;
 	input = skip_spaces(input);
     (input, _) = char(';')(input)?;
-    Ok((input, (id.to_string(), values.iter().filter(|str| str.is_empty() == false).map(|str| str.to_string()).collect())))
+    Ok((input, (id.to_owned(), values.iter().filter(|str| str.is_empty() == false).map(|str| str.to_string()).collect())))
 }
 
 fn skip_whitespaces(input: &str) -> &str {
@@ -117,7 +117,7 @@ fn location_block(mut input: &str) -> IResult<&str, LocationBlock> {
     (input, _) = tag("location")(input)?;
 	input = skip_spaces(input);
 	let (mut input , modifier) = match modifier(input) {
-		Ok((input, modifier)) => (input, Some(modifier.to_string())),
+		Ok((input, modifier)) => (input, Some(modifier.to_owned())),
 		_ => (input, None),
 	};
 	input = skip_spaces(input);
@@ -146,7 +146,7 @@ fn location_block(mut input: &str) -> IResult<&str, LocationBlock> {
     // Crée un bloc de type "location" similaire à une directive
     Ok((input, LocationBlock {
 		modifier: modifier,
-		path: path.to_string(),
+		path: path.to_owned(),
 		directives: infos,
 		cgi: cgi,
 	}))

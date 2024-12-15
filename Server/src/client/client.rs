@@ -25,7 +25,7 @@ impl Client {
 			request: None,
 			error_message: None,
 		}
-    }
+	}
 
 	pub async fn read_header(&mut self) {
 		let mut buffer = [0; 65536];
@@ -36,9 +36,8 @@ impl Client {
 			let mut request = self.request.as_ref().unwrap().clone();
 			match request.push(String::from_utf8_lossy(&buffer[..readed]).into_owned()) {
 				Ok(_) => {},
-				Err((err_code, err_mssg)) => {
+				Err(err_code) => {
 					self.response_code = err_code;
-					self.error_message = Some(err_mssg);
 					self.ready_to_response = true;
 				},
 			}
@@ -47,9 +46,8 @@ impl Client {
 			let readed = self.stream.lock().unwrap().read(&mut buffer).await.expect("failed to receive request !");
 			self.request = match Request::try_from(String::from_utf8_lossy(&buffer[..readed]).into_owned()) {
 				Ok(request) => Some(request),
-				Err((code, str)) => {
-					println!("Error: {str}");
-					self.stream.lock().unwrap().write(format!("HTTP/1.1 {code} OK\r\n\r\n{str}\r\n").as_bytes()).await.expect("failed to send response");
+				Err(_) => {
+					// self.stream.lock().unwrap().write(format!("HTTP/1.1 {code} OK\r\n\r\n{str}\r\n").as_bytes()).await.expect("failed to send response");
 					return ;
 				}
 			};

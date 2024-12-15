@@ -1,5 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
+use crate::request::request::Method;
+
 fn is_redirect_status_code(code: u16) -> bool {
 	code == 301 || code == 302 || code == 303 || code == 307
 }
@@ -7,7 +9,7 @@ fn is_redirect_status_code(code: u16) -> bool {
 #[allow(dead_code)]
 pub trait Config {
 	fn extract_root(value: Vec<String>) -> Result<PathBuf, String> {
-		if value.len() != 1 { return Err("invalid field: root".to_string()) }
+		if value.len() != 1 { return Err("invalid field: root".to_owned()) }
 
 		let path = PathBuf::from(&value[0]);
 		if path.is_dir() == false { return Err(value[0].clone() + ": invalid root directory") }
@@ -17,7 +19,7 @@ pub trait Config {
 	}
 
 	fn extract_max_body_size(value: Vec<String>) -> Result<u64, String> {
-		if value.len() != 1 { return Err("invalid field: client_max_body_size".to_string()) }
+		if value.len() != 1 { return Err("invalid field: client_max_body_size".to_owned()) }
 
 		let num = value[0].parse::<u64>();
 		
@@ -76,7 +78,7 @@ pub trait Config {
 	}
 
 	fn extract_return(value: Vec<String>) -> Result<(u16, Option<String>), String> {
-		if value.len() < 1 || value.len() > 2 { return Err("invalid field: return".to_string()) }
+		if value.len() < 1 || value.len() > 2 { return Err("invalid field: return".to_owned()) }
 
 		let status_code = match value[0].parse::<u16>() {
 			Ok(num) => num,
@@ -98,7 +100,7 @@ pub trait Config {
 	}
 
 	fn extract_listen(value: Vec<String>) -> Result<(Option<u16>, bool), String> {
-		if value.len() < 1 || value.len() > 2 { return Err("invalid field: port".to_string()) }
+		if value.len() < 1 || value.len() > 2 { return Err("invalid field: port".to_owned()) }
 
 		let default = value.len() == 2 && value[1] == "default";
 
@@ -111,21 +113,21 @@ pub trait Config {
 	}
 
 	fn extract_index(value: Vec<String>) -> Result<String, String> {
-		if value.len() != 1 { return Err("invalid field: index".to_string()) }
+		if value.len() != 1 { return Err("invalid field: index".to_owned()) }
 
 		Ok(value[0].clone())
 
 	}
 
 	fn extract_auto_index(value: Vec<String>) -> Result<bool, String> {
-		if value.len() != 1 { return Err("invalid field: auto_index".to_string()) }
+		if value.len() != 1 { return Err("invalid field: auto_index".to_owned()) }
 
 		Ok(value[0] == "on")
 
 	}
 
 	fn extract_cgi(value: Vec<String>) -> Result<(String, PathBuf), String> {
-		if value.len() != 2 { return Err("invalid field: cgi".to_string()) }
+		if value.len() != 2 { return Err("invalid field: cgi".to_owned()) }
 
 		let extension = value[0].clone();
 		let path = PathBuf::from(&value[1]);
@@ -143,7 +145,7 @@ pub trait Config {
 	fn cgi_path(&self, extension: String) -> Option<&PathBuf>;
 
 	//		CHECKERS	//
-	fn is_method_allowed(&self, method: String) -> bool;
+	fn is_method_allowed(&self, method: Method) -> bool;
 	fn is_general_field(&self, field: String) -> bool {
 		let general = vec![
 			"cgi",
