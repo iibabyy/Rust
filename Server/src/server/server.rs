@@ -6,7 +6,7 @@
 /*   By: ibaby <ibaby@student.42.fr>                +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/12/15 05:34:36 by ibaby             #+#    #+#             */
-/*   Updated: 2024/12/16 00:27:17 by ibaby            ###   ########.fr       */
+/*   Updated: 2024/12/16 08:54:19 by ibaby            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -23,7 +23,7 @@ use std::{
 
 use tokio::{
     fs::File,
-    io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufStream},
+    io::{self, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufStream},
     net::{TcpListener, TcpStream},
     stream,
     sync::Mutex,
@@ -134,6 +134,7 @@ impl Server {
                 return Err(());
             }
         };
+
         println!(
             "------[Server listening on {ip}::{}]------",
             self.port.unwrap()
@@ -245,7 +246,10 @@ impl Server {
         &self,
         mut stream: &mut TcpStream,
     ) -> Result<Request, Option<Error>> {
-        let buffer = Self::read_from(&mut stream).await?;
+        let buffer = match Self::read_header(&mut stream).await {
+			Ok(headers) => headers,
+			Err(err) => return Err(Some(err)),
+		};
         let mut request = match Request::try_from(buffer) {
             Ok(request) => request,
             Err(_) => {
@@ -269,6 +273,19 @@ impl Server {
 
         Ok(request)
     }
+
+	async fn read_header(stream: &mut TcpStream) -> io::Result<Vec<String>> {
+        let reader = BufReader::new(stream);
+		let mut lines = reader.lines();
+		let mut header = Vec::new();
+
+		while let Some(line) = lines.next_line().await? {
+			if line.is_empty() { return Ok(header) }
+			header.push(line);
+		}
+
+		Err(io::Error::new(std::io::ErrorKind::FileTooLarge, "header too large"))
+	}
 
     async fn consume_body(&self, stream: &mut TcpStream) -> Result<(), Error> {
         let mut buffer = [0; 65536];

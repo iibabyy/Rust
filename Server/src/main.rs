@@ -5,6 +5,7 @@ mod request;
 mod response;
 mod server;
 mod traits;
+mod connection;
 
 use server::server::Server;
 use std::net::IpAddr;

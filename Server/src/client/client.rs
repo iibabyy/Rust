@@ -74,8 +74,8 @@ impl Client {
         // self.stream.write(format!("HTTP/1.1 {response_code} OK\r\n\r\nHello from server !\r\n").as_bytes()).await.expect("failed to send response");
     }
 
-    pub fn request(&mut self) -> &Option<Request> {
-        &self.request
+    pub fn request(&mut self) -> Option<&Request> {
+        self.request.as_ref()
     }
 
     pub fn ready_to_response(&self) -> bool {

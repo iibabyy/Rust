@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fmt::Display, path::PathBuf, str::Split};
+use std::{collections::HashMap, fmt::Display, io, path::PathBuf, slice::Iter, str::Split};
 
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     net::{TcpSocket, TcpStream},
 };
 
@@ -11,7 +11,36 @@ use crate::traits::http_message::HttpMessage;
 /*										REQUEST										  */
 /*------------------------------------------------------------------------------------*/
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
+pub struct RequestError {
+	invalid_request: bool,
+	io_error: bool,
+	io_error_kind: Option<io::ErrorKind>,
+	error_string: String,
+}
+
+impl From<io::Error> for RequestError {
+	fn from(value: io::Error) -> Self {
+		let mut request = RequestError::default();
+		request.io_error = true;
+		request.io_error_kind = Some(value.kind());
+		request.error_string = value.to_string();
+
+		request
+	}
+}
+
+impl From<String> for RequestError {
+	fn from(value: String) -> Self {
+		let mut request = RequestError::default();
+		request.invalid_request = true;
+		request.error_string = value;
+
+		request
+	}
+}
+
+#[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
 pub struct Request {
     method: Method,
@@ -27,79 +56,109 @@ pub struct Request {
     keep_connection_alive: bool,
 }
 
-impl TryFrom<String> for Request {
-    type Error = u16;
-    fn try_from(value: String) -> Result<Request, Self::Error> {
-        let mut request = Request {
-            method: Method::UNDEFINED,
-            path: PathBuf::new(),
-            http_version: String::new(),
-            accept: None,
-            host: None,
-            headers: HashMap::new(),
-            content_length: None,
-            raw_body: None,
-            raw_header: String::new(),
-            keep_connection_alive: true,
-            state: State::Undefined,
-        };
+// impl TryFrom<Vec<String>> for Request {
+//     type Error = u16;
+//     fn try_from(value: Vec<String>) -> Result<Request, Self::Error> {
+//         let mut request = Request {
+//             method: Method::UNDEFINED,
+//             path: PathBuf::new(),
+//             http_version: String::new(),
+//             accept: None,
+//             host: None,
+//             headers: HashMap::new(),
+//             content_length: None,
+//             raw_body: None,
+//             raw_header: String::new(),
+//             keep_connection_alive: true,
+//             state: State::Undefined,
+//         };
 
-        request.push(value)?;
-        Ok(request)
-    }
-}
+//          request.push(value)?;
+//         Ok(request)
+//     }
+// }
 
 impl HttpMessage for Request {}
 
 impl Request {
-    pub fn push(&mut self, request: String) -> Result<(), u16> {
-        if self.state == State::OnBody {
-            todo!()
-        }
+    // pub fn push(&mut self, request: String) -> Result<(), u16> {
+    //     if self.state == State::OnBody {
+    //         todo!()
+    //     }
 
-        let (header, body) = match request.split_once("\r\n\r\n") {
-            None => {
-                // Header not finished
-                self.raw_header.push_str(&request);
-                return Ok(());
-            }
-            Some((header, body)) => (header, body),
-        };
-        // Header complete
-        self.raw_header.push_str(header);
-        self.state = State::OnHeader;
-        if body.is_empty() == false {
-            self.raw_body = Some(body.to_owned());
-        }
+    //     let (header, body) = match request.split_once("\r\n\r\n") {
+    //         None => {
+    //             // Header not finished
+    //             self.raw_header.push_str(&request);
+    //             return Ok(());
+    //         }
+    //         Some((header, body)) => (header, body),
+    //     };
+    //     // Header complete
+    //     self.raw_header.push_str(header);
+    //     self.state = State::OnHeader;
+    //     if body.is_empty() == false {
+    //         self.raw_body = Some(body.to_owned());
+    //     }
 
-        self.deserialize()?;
-        self.raw_header.clear();
-        self.state = if self.raw_body.is_some() {
-            State::OnBody
-        } else {
-            State::Finished
-        };
+    //     self.deserialize()?;
+    //     self.raw_header.clear();
+    //     self.state = if self.raw_body.is_some() {
+    //         State::OnBody
+    //     } else {
+    //         State::Finished
+    //     };
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    fn deserialize(&mut self) -> Result<(), u16> {
-        let temp = self.raw_header.clone();
-        let mut headers = temp.split("\r\n");
+	async fn from(mut stream: &mut TcpStream) -> Result<Self, RequestError> {
+		let headers = Self::read_header_from(&mut stream).await?;
 
-        let first_line = headers.next();
+		let request = match Self::deserialize(headers) {
+			Ok(request) => request,
+			Err(err) => return Err(RequestError::from(err)),
+		};
+
+		Ok(request)
+	}
+
+	async fn read_header_from(mut stream: &mut TcpStream) -> io::Result<Vec<String>> {
+		let mut headers = vec![];
+		let mut size = 0;
+		
+		while size < 4096 {
+			stream.readable().await;
+			let reader = BufReader::new(&mut stream);
+			let mut lines = reader.lines();
+			
+			while let Some(line) = lines.next_line().await? {
+				if line.is_empty() { return Ok(headers) }
+				size += line.as_bytes().len();
+				headers.push(line);
+			}
+		}
+
+		Err(io::Error::new(io::ErrorKind::FileTooLarge, "header too large: expected less than 4096 bytes"))
+
+	}
+
+    fn deserialize(headers: Vec<String>) -> Result<Self, String> {
+        let mut headers: Iter<'_, String> = headers.iter();
+		let first_line = headers.next();
         if first_line.is_none() {
-            println!("empty header");
-            return Err(400);
+            return Err("empty header".to_owned());
         }
 
-        self.parse_first_line(first_line.unwrap())?;
-        self.parse_other_lines(headers)?;
+		let mut request = Request::default();
 
-        Ok(())
+        request.parse_first_line(first_line.unwrap())?;
+        request.parse_other_lines(headers)?;
+
+        Ok(request)
     }
 
-    fn parse_other_lines(&mut self, headers: Split<'_, &str>) -> Result<(), u16> {
+    fn parse_other_lines(&mut self, headers: Iter<'_, String>) -> Result<(), String> {
         for header in headers {
             if header.is_empty() {
                 break;
@@ -107,8 +166,7 @@ impl Request {
 
             let split = header.split_once(":");
             if split.is_none() {
-                eprintln!("invalid header: {}", header);
-                return Err(400);
+                return Err(format!("invalid header: {}", header));
             }
 
             let name = split.unwrap().0;
@@ -119,8 +177,7 @@ impl Request {
                     if self.host.is_none() {
                         self.host = Some(value.to_owned())
                     } else {
-                        println!("duplicate header: Host");
-                        return Err(400);
+                        return Err("duplicate header: Host".to_owned());
                     }
                 }
                 "Connection" => {
@@ -150,22 +207,18 @@ impl Request {
         Ok(())
     }
 
-    fn parse_first_line(&mut self, line: &str) -> Result<(), u16> {
+    fn parse_first_line(&mut self, line: &str) -> Result<(), String> {
         let split: Vec<&str> = line.split_whitespace().collect();
 
 		eprintln!("Parsing first line");
         if split.len() != 3 {
-            eprintln!("invlid header: first line invalid: [{line}]");
-            return Err(400);
+            return Err(format!("invlid header: first line invalid: [{line}]"));
         } // Bad Request
 
         let method = split[0];
         self.method = match Method::try_from_str(method) {
             Ok(method) => method,
-            Err(e) => {
-                println!("invalid header: {e}");
-                return Err(501);
-            }
+            Err(_) => { Method::UNKNOWN }
         };
 
 		eprintln!("Parsing OK");
@@ -295,8 +348,9 @@ impl Method {
 /*										STATE										  */
 /*------------------------------------------------------------------------------------*/
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub enum State {
+	#[default]
     Undefined,
     OnHeader,
     OnBody,
