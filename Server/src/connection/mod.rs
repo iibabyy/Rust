@@ -4,48 +4,34 @@ mod connection {
     use tokio::{io::BufReader, net::TcpStream};
 
 	pub struct Connection {
-		stream: TcpStream,
-		reader: Option<Arc<Mutex<BufReader<TcpStream>>>>,
+		stream: Arc<Mutex<TcpStream>>,
 	}
 
 	impl Connection {
 		pub fn new(stream: TcpStream) -> Self {
 			Connection {
-				stream: stream,
-				reader: None,
+				stream: Arc::new(Mutex::new(stream)),
 			}
 		}
 
-	pub fn reader(&self) -> BufReader<TcpStream> {
-		if self.reader.is_none() {
-			self.reader = Some(BufReader::new(self.stream));
-		}
-
-		let reader = self.reader.unwrap().clone().lock().unwrap();
-
-		if reader.
-
 	}
-
-	pub async fn readable(&self) -> std::io::Result<()> {
-        self.stream.readable().await
-    }
 
 }
 
 mod listener {
     use std::{fmt::Debug, io, net::IpAddr, sync::{Arc, Mutex}};
 
-    use tokio::{net::{TcpListener, TcpStream}};
+    use nom::FindToken;
+    use tokio::{io::{AsyncBufReadExt, AsyncReadExt}, net::{TcpListener, TcpStream}};
     use tokio_util::sync::CancellationToken;
 
-    use crate::{request::{self, request::Request}, server::server::Server};
+    use crate::{request::{self, request::Request}, response::response::Response, server::server::Server};
 
-    use super::{connection::Connection, Connection};
+    use super::{connection::Connection, find_in_u8};
 
 	pub struct Listener {
 		listener: TcpListener,
-		servers: Vec<Arc<Mutex<Server>>>,
+		servers: Vec<Arc<Server>>,
 		cancel_token: CancellationToken,
 	}
 
@@ -58,8 +44,8 @@ mod listener {
 				Err(err) => return Err(err),
 			};
 
-			let servers: Vec<Arc<Mutex<Server>>> = servers.iter()
-			.map(|serv| Arc::new(Mutex::new(serv.to_owned())))
+			let servers: Vec<Arc<Server>> = servers.iter()
+			.map(|serv| Arc::new(serv.to_owned()))
 			.collect();
 
 			Ok(
@@ -80,7 +66,7 @@ mod listener {
 						println!("------[Connection accepted: {addr}]------");
 						let server_instance = self.servers.clone();
 						tokio::spawn( async move {
-
+							Self::hande_connection(stream, server_instance);
 						});
 					}
 					_ = cancel.cancelled() => {
@@ -91,34 +77,43 @@ mod listener {
 			}
 		}
 
-		async fn hande_connection(stream: TcpStream, servers: Vec<Arc<Mutex<Server>>>) {
-			let stream = Connection::new(stream);
-			
+		async fn hande_stream(mut stream: TcpStream, servers: Vec<Arc<Server>>) -> anyhow::Result<()> {
+			let mut buffer = [0; 65536];
+			let mut raw = String::new();
+
 			loop {
+				let n = match stream.read(&mut buffer).await {
+					Err(err) => {
+						return Ok(eprintln!("Error: {} -> closing conection", err));
+					}
+					Ok(n) => n,
+				};
+				
+				if n == 0 {
+					return Ok(eprintln!("End of stream: closing conection"));
+				}	// end of connection
+
+				raw.push_str(std::str::from_utf8(&buffer[..n])?);
+
+				while let Some((header, raw)) = raw.split_once("\r\n\r\n") {
+
+				}
+
+
 
 			}
+
+		}
+
+		async fn extract_header(&self, header: &mut String) {
+			let response = Response::from
 		}
 
 	}
+}
 
-	async fn read_header_from(mut stream: &mut Connection) -> io::Result<Vec<String>> {
-		let mut headers = vec![];
-		let mut size = 0;
+fn find_in_u8(big: &[u8], litte: &[u8]) -> bool {
+	if litte.len() == 0 { return true }
 
-		while size < 4096 {
-			stream.readable().await;
-			let reader = stream.reader();
-			let mut lines = reader.lines();
-			
-			while let Some(line) = lines.next_line().await? {
-				if line.is_empty() { return Ok(headers) }
-				size += line.as_bytes().len();
-				headers.push(line);
-			}
-		}
-
-		Err(io::Error::new(io::ErrorKind::FileTooLarge, "header too large: expected less than 4096 bytes"))
-
-	}
-
+	big.windows(litte.len()).position(|window| window == litte).is_some()
 }
