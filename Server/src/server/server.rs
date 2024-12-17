@@ -6,7 +6,7 @@
 /*   By: ibaby <ibaby@student.42.fr>                +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2024/12/15 05:34:36 by ibaby             #+#    #+#             */
-/*   Updated: 2024/12/16 08:54:19 by ibaby            ###   ########.fr       */
+/*   Updated: 2024/12/17 00:03:36 by ibaby            ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -120,94 +120,94 @@ impl Config for Server {
 /*------------------------------------------------------------------------------------------------------*/
 
 impl Server {
-    pub async fn run(mut self, ip: IpAddr, cancel_token: CancellationToken) -> Result<(), ()> {
-        if self.port.is_none() {
-            println!("------[No port to listen -> no bind]------");
-            return Ok(());
-        }
+    // pub async fn run(mut self, ip: IpAddr, cancel_token: CancellationToken) -> Result<(), ()> {
+    //     if self.port.is_none() {
+    //         println!("------[No port to listen -> no bind]------");
+    //         return Ok(());
+    //     }
 
-        self.socket = Some(SocketAddr::new(ip, self.port.unwrap()));
-        let listener = match TcpListener::bind(self.socket.unwrap().clone()).await {
-            Ok(listener) => listener,
-            Err(e) => {
-                eprintln!("Server ({}): failed to bind: {e}", self.socket.unwrap());
-                return Err(());
-            }
-        };
+    //     self.socket = Some(SocketAddr::new(ip, self.port.unwrap()));
+    //     let listener = match TcpListener::bind(self.socket.unwrap().clone()).await {
+    //         Ok(listener) => listener,
+    //         Err(e) => {
+    //             eprintln!("Server ({}): failed to bind: {e}", self.socket.unwrap());
+    //             return Err(());
+    //         }
+    //     };
 
-        println!(
-            "------[Server listening on {ip}::{}]------",
-            self.port.unwrap()
-        );
-        let server = Arc::new(self);
+    //     println!(
+    //         "------[Server listening on {ip}::{}]------",
+    //         self.port.unwrap()
+    //     );
+    //     let server = Arc::new(self);
 
-        loop {
-            let cancel = cancel_token.clone();
-            tokio::select! {
-                Ok((stream, addr)) = listener.accept() => {
-                    println!("------[Connection accepted: {addr}]------");
-                    let server_instance = Arc::clone(&server);
-                    tokio::spawn( async move {
-                        server_instance.handle_client(stream).await
-                    });
-                }
-                _ = cancel.cancelled() => {
-                    println!("------[Server ({}): stop listening]------", server.socket.unwrap());
-                    return Ok(());
-                }
-            }
-        }
-    }
+    //     loop {
+    //         let cancel = cancel_token.clone();
+    //         tokio::select! {
+    //             Ok((stream, addr)) = listener.accept() => {
+    //                 println!("------[Connection accepted: {addr}]------");
+    //                 let server_instance = Arc::clone(&server);
+    //                 tokio::spawn( async move {
+    //                     server_instance.handle_client(stream).await
+    //                 });
+    //             }
+    //             _ = cancel.cancelled() => {
+    //                 println!("------[Server ({}): stop listening]------", server.socket.unwrap());
+    //                 return Ok(());
+    //             }
+    //         }
+    //     }
+    // }
 
-    async fn handle_client(&self, mut stream: TcpStream) -> Result<(), Error> {
-        //	getting request
-        loop {
-            let request = match self.read_until_header_complete(&mut stream).await {
-                Ok(request) => request,
-                Err(err) => {
-                    if err.is_none() {
-                        // Request Parsing Error
-                        eprintln!("invalid header !");
-                        self.send_error_response_to(&mut stream, ResponseCode::new(400)).await?;
-                    } else {
-                        // i/o Error
-                        let err = err.unwrap();
-                        eprintln!("failed to read header !");
-                        self.send_error_response_to(
-                            &mut stream,
-                            ResponseCode::from_error(err.kind()),
-                        )
-                        .await?;
-                    }
-                    continue;
-                }
-            };
+    // async fn handle_client(&self, mut stream: TcpStream) -> Result<(), Error> {
+    //     //	getting request
+    //     loop {
+    //         let request = match self.read_until_header_complete(&mut stream).await {
+    //             Ok(request) => request,
+    //             Err(err) => {
+    //                 if err.is_none() {
+    //                     // Request Parsing Error
+    //                     eprintln!("invalid header !");
+    //                     self.send_error_response_to(&mut stream, ResponseCode::new(400)).await?;
+    //                 } else {
+    //                     // i/o Error
+    //                     let err = err.unwrap();
+    //                     eprintln!("failed to read header !");
+    //                     self.send_error_response_to(
+    //                         &mut stream,
+    //                         ResponseCode::from_error(err.kind()),
+    //                     )
+    //                     .await?;
+    //                 }
+    //                 continue;
+    //             }
+    //         };
 
-			eprintln!("---[ {:#?}", request);
+	// 		eprintln!("---[ {:#?}", request);
 
-            match if let Some(location) = self.get_location(request.path()) {
-                eprintln!("---[ LOCATION");
-                location.send_response(&request, &mut stream).await
-            } else {
-                eprintln!("---[ SERVER");
-				// eprintln!("---[ {:#?}", request);
-                self.send_response(&request, &mut stream).await
-            } {
-                Ok(_) => (),
-                Err(err) => {
-                    eprintln!("failed to send response: {} !", err.to_string());
-                    self.send_error_response_to(&mut stream, err).await?;
-                    continue;
-                }
-            }
+    //         match if let Some(location) = self.get_location(request.path()) {
+    //             eprintln!("---[ LOCATION");
+    //             location.send_response(&request, &mut stream).await
+    //         } else {
+    //             eprintln!("---[ SERVER");
+	// 			// eprintln!("---[ {:#?}", request);
+    //             self.send_response(&request, &mut stream).await
+    //         } {
+    //             Ok(_) => (),
+    //             Err(err) => {
+    //                 eprintln!("failed to send response: {} !", err.to_string());
+    //                 self.send_error_response_to(&mut stream, err).await?;
+    //                 continue;
+    //             }
+    //         }
 
-            if request.keep_connection_alive() == false {
-                break;
-            }
-        }
+    //         if request.keep_connection_alive() == false {
+    //             break;
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     fn get_location(&self, to_find: &PathBuf) -> Option<&Location> {
         let mut save: Option<(&PathBuf, &Location)> = None;
@@ -242,37 +242,37 @@ impl Server {
         }
     }
 
-    async fn read_until_header_complete(
-        &self,
-        mut stream: &mut TcpStream,
-    ) -> Result<Request, Option<Error>> {
-        let buffer = match Self::read_header(&mut stream).await {
-			Ok(headers) => headers,
-			Err(err) => return Err(Some(err)),
-		};
-        let mut request = match Request::try_from(buffer) {
-            Ok(request) => request,
-            Err(_) => {
-                println!("Error: bad request");
-                // self.send_error_response_to(&mut stream);
-                return Err(None);
-            }
-        };
+    // async fn read_until_header_complete(
+    //     &self,
+    //     mut stream: &mut TcpStream,
+    // ) -> Result<Request, Option<Error>> {
+    //     let buffer = match Self::read_header(&mut stream).await {
+	// 		Ok(headers) => headers,
+	// 		Err(err) => return Err(Some(err)),
+	// 	};
+    //     let mut request = match Request::try_from(buffer) {
+    //         Ok(request) => request,
+    //         Err(_) => {
+    //             println!("Error: bad request");
+    //             // self.send_error_response_to(&mut stream);
+    //             return Err(None);
+    //         }
+    //     };
 
-        while request.state().is(State::OnHeader) {
-            let buffer = Self::read_from(&mut stream).await?;
+    //     while request.state().is(State::OnHeader) {
+    //         let buffer = Self::read_from(&mut stream).await?;
 
-            match request.push(buffer) {
-                Ok(_) => (),
-                Err(_) => {
-                    println!("Error: bad request");
-                    return Err(None);
-                }
-            }
-        }
+    //         match request.push(buffer) {
+    //             Ok(_) => (),
+    //             Err(_) => {
+    //                 println!("Error: bad request");
+    //                 return Err(None);
+    //             }
+    //         }
+    //     }
 
-        Ok(request)
-    }
+    //     Ok(request)
+    // }
 
 	async fn read_header(stream: &mut TcpStream) -> io::Result<Vec<String>> {
         let reader = BufReader::new(stream);
@@ -347,24 +347,14 @@ impl Server {
         Ok(serv)
     }
 
-    pub fn init_servers(configs: Vec<ServerBlock>) -> Result<Vec<Self>, String> {
-        let mut servers = Vec::new();
+    // async fn read_from(mut stream: impl AsyncRead + Unpin) -> Result<String, Error> {
+    //     let mut buffer = [0; 65536];
 
-        for server_config in configs {
-            servers.push(Self::new(server_config)?);
-        }
-
-        Ok(servers)
-    }
-
-    async fn read_from(mut stream: impl AsyncRead + Unpin) -> Result<String, Error> {
-        let mut buffer = [0; 65536];
-
-        match stream.read(&mut buffer).await {
-            Ok(n) => Ok(String::from_utf8_lossy(&buffer[..n]).into_owned()),
-            Err(e) => Err(e),
-        }
-    }
+    //     match stream.read(&mut buffer).await {
+    //         Ok(n) => Ok(String::from_utf8_lossy(&buffer[..n]).into_owned()),
+    //         Err(e) => Err(e),
+    //     }
+    // }
 
     // async fn create_request_from(&mut self, stream: &mut TcpStream) -> Result<Request, ()> {
     // 	let mut buffer = [0;65536];
@@ -387,6 +377,17 @@ impl Server {
 /*---------------------------------------------------------------*/
 
 impl Server {
+
+    pub fn init_servers(configs: Vec<ServerBlock>) -> Result<Vec<Self>, String> {
+        let mut servers = Vec::new();
+
+        for server_config in configs {
+            servers.push(Self::new(server_config)?);
+        }
+
+        Ok(servers)
+    }
+
     fn add_directive(&mut self, name: String, infos: Vec<String>) -> Result<(), String> {
         match name.as_str() {
             "root" => {

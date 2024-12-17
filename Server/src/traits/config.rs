@@ -15,129 +15,158 @@ fn is_redirect_status_code(code: u16) -> bool {
 
 #[allow(dead_code)]
 pub trait Config {
-    async fn send_response(
-        &self,
-        request: &Request,
-        stream: &mut TcpStream,
-    ) -> Result<(), ResponseCode> {
-        let _ = match self.parse(&request) {
-            Ok(()) => (),
-            Err(err) => return Err(err),
-        };
+ 
+	/*------------------------------------------------------------*/
+	/*-----------------------[ GETTERS ]--------------------------*/
+	/*------------------------------------------------------------*/
 
-        match request.method() {
-            &Method::GET => self.send_get_response(&request, stream).await,
-            // &Method::POST => {},
-            // &Method::DELETE => {},
-            _ => Err(ResponseCode::new(501)), // not implemented
-        }
-    }
 
-    async fn send_get_response(
-        &self,
-        request: &Request,
-        stream: &mut TcpStream,
-    ) -> Result<(), ResponseCode> {
-        let mut path = match self.get_final_path(request.path()) {
-			Some(path) => path,
-			None => return Err(ResponseCode::new(404)),
-		};
+    fn auto_index(&self) -> bool;
+    fn root(&self) -> Option<&PathBuf>;
+    fn alias(&self) -> Option<&PathBuf>;
+    fn port(&self) -> Option<&u16>;
+    fn index(&self) -> Option<&String>;
+    fn max_body_size(&self) -> Option<&u64>;	//-
+    fn name(&self) -> Option<&Vec<String>>;
+    fn path(&self) -> &PathBuf;
+    fn methods(&self) -> Option<&Vec<Method>>;
+    fn cgi(&self) -> &HashMap<String, PathBuf>;	//-
+    fn error_pages(&self) -> &HashMap<u16, String>;
+    fn error_redirect(&self) -> &HashMap<u16, (Option<u16>, String)>;
+    fn locations(&self) -> Option<&HashMap<PathBuf, Location>>;
+    fn return_(&self) -> Option<&(u16, Option<String>)>;
+    fn internal(&self) -> bool;
+    fn is_location(&self) -> bool;
 
-        if path.is_dir() {
-            // send_get_response_directory()
-            eprintln!("index: {}", self.index().as_ref().unwrap());
-            path = path.join(PathBuf::from(self.index().as_ref().unwrap()));
-        }
+	/*------------------------------------------------------------*/
+	/*-----------------------[ Parsing ]--------------------------*/
+	/*------------------------------------------------------------*/
 
-        // if self.is_cgi(&request){
-        // 	// handle CGI GET methods
-        // 	todo!();
-        // }
-
-        eprintln!("----SENDING RESPONSE----");
-
-        // match self.consume_body(stream).await {
-        // 	Ok(_) => (),
-        // 	Err(err) => { return Err(ResponseCode::from_error(err.kind())) }
-        // }
-
-        let mut response = match Response::from_file(ResponseCode::new(200), path.as_path()).await {
-			Err(err) => return Err(ResponseCode::from_error(err)),
-			Ok(response) => response,
-		};
-
-        match response.send_to(stream).await {
-            Ok(_) => Ok(()),
-            Err(err) => Err(ResponseCode::from_error(err.kind())),
-        }
-    }
-
-    fn get_final_path(&self, request: &PathBuf) -> Option<PathBuf> {
-        let path = if self.root().is_some() {
-			let mut path = self.root().unwrap().to_owned().to_str().unwrap().to_owned();
-			path = format!("{}/{}", path, request.to_str().unwrap());
-			eprintln!("path: {}", path);
-			path
-		} else if self.alias().is_some() {
-			todo!()
-		} else {
-			return None
-		};
-
-		let mut path = PathBuf::from(path);
-
-		if path.exists() == false {
-			return None
-		} else if path.is_dir() && self.index().is_some() {
-			path.push(self.index().unwrap());
+	fn parse_request(&self, request: &Request) -> Result<(), ResponseCode> {
+		if let Some(location) = self.is_request_in_location(request) {
+			return location.parse_request(request);
 		}
 
-		Some(path)
+		self.parse_method(request)?;
 
-    }
-
-    async fn send_error_response_to(
-        &self,
-        stream: &mut TcpStream,
-        mut code: ResponseCode,
-    ) -> Result<(), ErrorKind> {
-        let error_page = match self.error_pages().get(&code.code()) {
-            Some(page) => PathBuf::from(page),
-            None => {
-				code = ResponseCode::new(400);
-				PathBuf::from("error_pages/404.html") // TODO: need to have one default page by error (cgi ?)
-			}
-		};
-
-        let response = self.get_final_path(&error_page);
-
-		let mut response = match response {
-			Some(path) => {
-				Response::from_file(code, path.as_path()).await?
-			}
-			None => {
-				Response::from_file(ResponseCode::new(400), PathBuf::from("error_pages/404.html").as_path()).await?		// final path not found
-			}
-		};
-
-		match response.send_to(stream).await {
-			Ok(_) => Ok(()),
-			Err(err) => Err(err.kind()),
-		};
+		if request.content_length()  > self.max_body_size() {
+			return Err(ResponseCode::new(413));
+		}
 
 		Ok(())
+	}
 
+	fn is_cgi(&self, request: &Request) -> bool {
+		let request_extension = request.path().extension();
+
+		if request_extension.is_none() { return false }
+
+		let request_extension = match request_extension.unwrap().to_str() {
+			Some(extension)	=> extension,
+			None 					=> return false,
+		};
+
+		if self.cgi().contains_key(request_extension) {
+			true
+		} else {
+			false
+		}
+	}
+
+    fn parse_method(&self, request: &Request) -> Result<(), ResponseCode> {
+        let methods = self.methods();
+		if methods.is_none() {
+			eprintln!("NO METHODS ALLOWED !");
+            return Err(ResponseCode::new(405));
+        } // No method allowed
+        if !methods.as_ref().unwrap().contains(request.method()) {
+			eprintln!("METHOD NOT ALLOWED !");
+            return Err(ResponseCode::new(405));
+        } // Ok
+
+        return match request.method() {
+            // check if implemented (wip)
+            &Method::GET	=> Ok(()),
+
+            _ 				=> Err(ResponseCode::new(501)), // Not implemented
+        };
     }
 
-    fn parse(&self, request: &Request) -> Result<(), ResponseCode> {
-        self.parse_method(request)?;
+    // fn is_general_field(&self, field: String) -> bool {
+    //     let general = vec![
+    //         "cgi",
+    //         "index",
+    //         "auto_index",
+    //         "allowed_methods",
+    //         "root",
+    //         "listen",
+    //     ];
 
-        if self.max_body_size() < request.content_length().as_ref() {
-            return Err(ResponseCode::new(413));
-        }
+    //     return general.contains(&field.as_str());
+    // }
 
-        Ok(())
-    }
+    // fn get_final_path(&self, request: &PathBuf) -> Option<PathBuf> {
+    //     let path = if self.root().is_some() {
+	// 		let mut path = self.root().unwrap().to_owned().to_str().unwrap().to_owned();
+	// 		path = format!("{}/{}", path, request.to_str().unwrap());
+	// 		eprintln!("path: {}", path);
+	// 		path
+	// 	} else if self.alias().is_some() {
+	// 		todo!()
+	// 	} else {
+	// 		return None
+	// 	};
+
+	// 	let mut path = PathBuf::from(path);
+
+	// 	if path.exists() == false {
+	// 		return None
+	// 	} else if path.is_dir() && self.index().is_some() {
+	// 		path.push(self.index().unwrap());
+	// 	}
+
+	// 	Some(path)
+
+    // }
+
+	fn is_request_in_location(&self, request: &Request) -> Option<&Location> {
+		if self.is_location() == true { return None }
+		if self.locations().is_none() { return None }
+
+		let locations = self.locations().unwrap();
+		let mut save: Option<&Location> = None;
+		let mut save_path = None;
+
+		for (location_path, location) in locations {
+			let location_path = match location_path.to_str() {
+				Some(location_path) => location_path, None => continue
+			};
+			
+			let request_path = match request.path().to_str() {
+				Some(path) => path, None => continue
+			};
+
+			if request_path.starts_with(location_path) {
+				match location.exact_path() {
+					true => {
+						if save.is_none() && location_path == request_path { save = Some(location); save_path = Some(location_path) }
+					}
+					false => {
+						if save.is_none() { save = Some(location); save_path = Some(location_path) }
+						else if location_path > save_path.unwrap() { save = Some(location) }
+					}
+
+				}
+			}
+		}
+
+		save
+	}
+
+	/*------------------------------------------------------------*/
+	/*-------------------[ Config Parsing ]-----------------------*/
+	/*------------------------------------------------------------*/
+
 
     fn extract_root(value: Vec<String>) -> Result<PathBuf, String> {
         if value.len() != 1 {
@@ -330,54 +359,93 @@ pub trait Config {
         Ok((extension, path))
     }
 
-    //		GETTERS		//
-    fn auto_index(&self) -> bool;
-    fn root(&self) -> Option<&PathBuf>;
-    fn alias(&self) -> Option<&PathBuf>;
-    fn port(&self) -> Option<&u16>;
-    fn index(&self) -> Option<&String>;
-    fn max_body_size(&self) -> Option<&u64>;
-    fn name(&self) -> Option<&Vec<String>>;
-    fn path(&self) -> &PathBuf;
-    fn methods(&self) -> Option<&Vec<Method>>;
-    fn cgi(&self) -> &HashMap<String, PathBuf>;
-    fn error_pages(&self) -> &HashMap<u16, String>;
-    fn error_redirect(&self) -> &HashMap<u16, (Option<u16>, String)>;
-    fn locations(&self) -> Option<&HashMap<PathBuf, Location>>;
-    fn return_(&self) -> Option<&(u16, Option<String>)>;
-    fn internal(&self) -> bool;
-    fn is_location(&self) -> bool;
-
-    //		CHECKERS	//
-
-    fn parse_method(&self, request: &Request) -> Result<(), ResponseCode> {
-        let methods = self.methods();
-		if methods.is_none() {
-			eprintln!("NO METHODS ALLOWED !");
-            return Err(ResponseCode::new(405));
-        } // No method allowed
-        if !methods.as_ref().unwrap().contains(request.method()) {
-			eprintln!("METHOD NOT ALLOWED !");
-            return Err(ResponseCode::new(405));
-        } // Ok
-
-        return match request.method() {
-            // check if implemented (wip)
-            &Method::GET => Ok(()),
-            _ => Err(ResponseCode::new(501)), // Not implemented
-        };
-    }
-
-    fn is_general_field(&self, field: String) -> bool {
-        let general = vec![
-            "cgi",
-            "index",
-            "auto_index",
-            "allowed_methods",
-            "root",
-            "listen",
-        ];
-
-        return general.contains(&field.as_str());
-    }
 }
+   // async fn send_response(
+    //     &self,
+    //     request: &Request,
+    //     stream: &mut TcpStream,
+    // ) -> Result<(), ResponseCode> {
+    //     let _ = match self.parse(&request) {
+    //         Ok(()) => (),
+    //         Err(err) => return Err(err),
+    //     };
+
+    //     match request.method() {
+    //         &Method::GET => self.send_get_response(&request, stream).await,
+    //         // &Method::POST => {},
+    //         // &Method::DELETE => {},
+    //         _ => Err(ResponseCode::new(501)), // not implemented
+    //     }
+    // }
+
+    // async fn send_get_response(
+    //     &self,
+    //     request: &Request,
+    //     stream: &mut TcpStream,
+    // ) -> Result<(), ResponseCode> {
+    //     let mut path = match self.get_final_path(request.path()) {
+	// 		Some(path) => path,
+	// 		None => return Err(ResponseCode::new(404)),
+	// 	};
+
+    //     if path.is_dir() {
+    //         // send_get_response_directory()
+    //         eprintln!("index: {}", self.index().as_ref().unwrap());
+    //         path = path.join(PathBuf::from(self.index().as_ref().unwrap()));
+    //     }
+
+    //     // if self.is_cgi(&request){
+    //     // 	// handle CGI GET methods
+    //     // 	todo!();
+    //     // }
+
+    //     eprintln!("----SENDING RESPONSE----");
+
+    //     // match self.consume_body(stream).await {
+    //     // 	Ok(_) => (),
+    //     // 	Err(err) => { return Err(ResponseCode::from_error(err.kind())) }
+    //     // }
+
+    //     let mut response = match Response::from_file(ResponseCode::new(200), path.as_path()).await {
+	// 		Err(err) => return Err(ResponseCode::from_error(err)),
+	// 		Ok(response) => response,
+	// 	};
+
+    //     match response.send_to(stream).await {
+    //         Ok(_) => Ok(()),
+    //         Err(err) => Err(ResponseCode::from_error(err.kind())),
+    //     }
+    // }
+
+    // async fn send_error_response_to(
+    //     &self,
+    //     stream: &mut TcpStream,
+    //     mut code: ResponseCode,
+    // ) -> Result<(), ErrorKind> {
+    //     let error_page = match self.error_pages().get(&code.code()) {
+    //         Some(page) => PathBuf::from(page),
+    //         None => {
+	// 			code = ResponseCode::new(400);
+	// 			PathBuf::from("error_pages/404.html") // TODO: need to have one default page by error (cgi ?)
+	// 		}
+	// 	};
+
+    //     let response = self.get_final_path(&error_page);
+
+	// 	let mut response = match response {
+	// 		Some(path) => {
+	// 			Response::from_file(code, path.as_path()).await?
+	// 		}
+	// 		None => {
+	// 			Response::from_file(ResponseCode::new(400), PathBuf::from("error_pages/404.html").as_path()).await?		// final path not found
+	// 		}
+	// 	};
+
+	// 	match response.send_to(stream).await {
+	// 		Ok(_) => Ok(()),
+	// 		Err(err) => Err(err.kind()),
+	// 	};
+
+	// 	Ok(())
+
+    // }

@@ -56,61 +56,50 @@ pub struct Request {
     keep_connection_alive: bool,
 }
 
-impl TryFrom<String> for Request {
-    type Error = u16;
-    fn try_from(value: String) -> Result<Request, Self::Error> {
-        let mut request = Request {
-            method: Method::UNDEFINED,
-            path: PathBuf::new(),
-            http_version: String::new(),
-            accept: None,
-            host: None,
-            headers: HashMap::new(),
-            content_length: None,
-            raw_body: None,
-            raw_header: String::new(),
-            keep_connection_alive: true,
-            state: State::Undefined,
-        };
-
-        request.push(value)?;
-        Ok(request)
+impl TryFrom<&str> for Request {
+    type Error = String;
+    fn try_from(value: &str) -> Result<Request, Self::Error> {
+		let headers = value.split("\r\n").map(|str| str.to_string()).collect();
+		match Self::deserialize(headers) {
+			Ok(request) => Ok(request),
+			Err(err) => Err(err),
+		}
     }
 }
 
 impl HttpMessage for Request {}
 
 impl Request {
-    pub fn push(&mut self, request: &str) -> Result<Option<String>, u16> {
-        if self.state != State::Undefined && self.state != State::OnHeader {
-            todo!()
-        }
+    // pub fn push(&mut self, request: &str) -> Result<Option<String>, u16> {
+    //     if self.state != State::Undefined && self.state != State::OnHeader {
+    //         todo!()
+    //     }
 		
-		self.state = State::OnHeader;
-        let (header, rest) = match request.split_once("\r\n\r\n") {
-            None => {
-                // Header not finished
-                self.raw_header.push_str(&request);
-                return Ok(None);
-            }
-            Some((header, rest)) => (header, rest),
-        };
-        // Header complete
-        self.raw_header.push_str(header);
-        if rest.is_empty() == false {
-			self.raw_body = Some(rest.to_owned());
-        }
-		
-        self.deserialize()?;
-        self.raw_header.clear();
-        self.state = if self.raw_body.is_some() {
-			State::OnBody
-        } else {
-            State::Finished
-        };
+	// 	self.state = State::OnHeader;
+    //     let (header, rest) = match request.split_once("\r\n\r\n") {
+    //         None => {
+    //             // Header not finished
+    //             self.raw_header.push_str(&request);
+    //             return Ok(None);
+    //         }
+    //         Some((header, rest)) => (header, rest),
+    //     };
+    //     // Header complete
+    //     self.raw_header.push_str(header);
+    //     if rest.is_empty() == false {
+	// 		self.raw_body = Some(rest.to_owned());
+    //     }
 
-        Ok(())
-    }
+    //     self.deserialize()?;
+    //     self.raw_header.clear();
+    //     self.state = if self.raw_body.is_some() {
+	// 		State::OnBody
+    //     } else {
+    //         State::Finished
+    //     };
+
+    //     Ok(())
+    // }
 
 	async fn from(mut stream: &mut TcpStream) -> Result<Self, RequestError> {
 		let headers = Self::read_header_from(&mut stream).await?;
@@ -254,8 +243,8 @@ impl Request {
         self.host.as_ref()
     }
 
-    pub fn content_length(&self) -> Option<u64> {
-        self.content_length
+    pub fn content_length(&self) -> Option<&u64> {
+        self.content_length.as_ref()
     }
 
     pub fn keep_connection_alive(&self) -> bool {

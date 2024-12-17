@@ -25,13 +25,11 @@ mod listener {
     use tokio::{io::{AsyncBufReadExt, AsyncReadExt}, net::{TcpListener, TcpStream}};
     use tokio_util::sync::CancellationToken;
 
-    use crate::{request::{self, request::Request}, response::response::Response, server::server::Server};
-
-    use super::{connection::Connection, find_in_u8};
+    use crate::{request::{self, request::Request}, response::response::{Response, ResponseCode}, server::server::Server, traits::config::Config};
 
 	pub struct Listener {
 		listener: TcpListener,
-		servers: Vec<Arc<Server>>,
+		servers: Vec<Server>,
 		cancel_token: CancellationToken,
 	}
 
@@ -43,10 +41,6 @@ mod listener {
 				Ok(listener) => listener,
 				Err(err) => return Err(err),
 			};
-
-			let servers: Vec<Arc<Server>> = servers.iter()
-			.map(|serv| Arc::new(serv.to_owned()))
-			.collect();
 
 			Ok(
 				Listener {
@@ -77,7 +71,7 @@ mod listener {
 			}
 		}
 
-		async fn hande_stream(mut stream: TcpStream, servers: Vec<Arc<Server>>) -> anyhow::Result<()> {
+		async fn handle_stream(mut stream: TcpStream, servers: &Vec<Server>) -> anyhow::Result<()> {
 			let mut buffer = [0; 65536];
 			let mut raw = String::new();
 
@@ -95,25 +89,63 @@ mod listener {
 
 				raw.push_str(std::str::from_utf8(&buffer[..n])?);
 
-				while let Some((header, raw)) = raw.split_once("\r\n\r\n") {
-
+				let mut temp = None;
+				while let Some((header, raw_left)) = raw.split_once("\r\n\r\n") {
+					Self::handle_request(header, &mut stream, servers).await;
+					temp = Some(raw_left);
 				}
-
-
+				
+				if temp.is_some() { raw = temp.unwrap().to_owned() }
 
 			}
+		}
+
+		async fn handle_request(header: &str, mut stream: &mut TcpStream, servers: &Vec<Server>) {
+			let request = match Request::try_from(header) {
+				Ok(request) => request,
+				Err(err) => {
+					eprintln!("Bad request: {err}");
+					// send error response bad request
+					todo!()
+				}
+			};
+
+			let server = Self::choose_server_from(&request, servers);
+
+			match server.parse_request(&request) {
+				Ok(_) => (),
+				Err(err) => {
+					eprintln!("Error: {}", err.to_string());
+					// TODO: send error response
+					todo!()
+				}
+			}
+
+			let response = server.final_path():
 
 		}
 
-		async fn extract_header(&self, header: &mut String) {
-			let response = Response::from
+		fn choose_server_from<'a>(request: &Request, servers: &'a Vec<Server>) -> &'a Server {
+			let mut default = None;
+
+			if request.host().is_some() {
+				let hostname = request.host().unwrap();
+				for serv in servers {
+					if serv.is_default() { default = Some(serv) }
+					if serv.name().is_none() { continue }
+					
+					let names = serv.name().unwrap();
+					
+					if names.iter().any(|name| name == hostname) { return serv }
+					
+				}
+			}
+
+			if default.is_some() { return default.unwrap() }
+
+			return servers.first().unwrap()
+
 		}
 
 	}
-}
-
-fn find_in_u8(big: &[u8], litte: &[u8]) -> bool {
-	if litte.len() == 0 { return true }
-
-	big.windows(litte.len()).position(|window| window == litte).is_some()
 }

@@ -310,4 +310,8 @@ impl Location {
     pub fn path(&self) -> &PathBuf {
         &self.path
     }
+	
+	pub fn exact_path(&self) -> bool {
+		self.exact_path
+	}
 }

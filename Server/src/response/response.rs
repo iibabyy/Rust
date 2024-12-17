@@ -3,7 +3,7 @@ use std::{
     fmt::format,
     hash::Hash,
     io::{Error, ErrorKind},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use lazy_static::lazy_static;
@@ -13,86 +13,81 @@ use tokio::{
     net::TcpStream,
 };
 
+use super::Body;
+
+#[derive(Default, Debug)]
 pub struct Response {
     code: ResponseCode,
     headers: HashMap<String, String>,
     file: Option<File>,
-}
-
-impl Default for Response {
-    fn default() -> Self {
-        Response {
-            code: ResponseCode::default(),
-            headers: HashMap::new(),
-            file: None,
-        }
-    }
+    body: Option<String>,
 }
 
 impl Response {
-    pub fn new(code: u16) -> Response {
+    pub fn new(code: ResponseCode) -> Response {
         Response {
-            code: ResponseCode::new(code),
+            code: code,
             headers: HashMap::new(),
             file: None,
+            body: None,
         }
     }
 
-    pub async fn send_to(&mut self, stream: &mut TcpStream) -> Result<(), Error> {
-        let header = self.serialize_header().await?;
+    // pub async fn send_to(&mut self, stream: &mut TcpStream) -> Result<(), Error> {
+    //     let header = self.serialize_header().await?;
 
-        let _ = stream.write_all(header.as_bytes()).await?;
+    //     let _ = stream.write_all(header.as_bytes()).await?;
 
-        if self.file.is_none() {
-            return Ok(());
-        }
+    //     if self.file.is_none() {
+    //         return Ok(());
+    //     }
 
-        let mut buffer = [0; 65536];
-        loop {
-            let n = self.file.as_mut().unwrap().read(&mut buffer).await?;
-            if n == 0 {
-                break;
-            }
+    //     let mut buffer = [0; 65536];
+    //     loop {
+    //         let n = self.file.as_mut().unwrap().read(&mut buffer).await?;
+    //         if n == 0 {
+    //             break;
+    //         }
 
-            let _ = stream.write_all(&buffer[..n]).await?;
-        }
+    //         let _ = stream.write_all(&buffer[..n]).await?;
+    //     }
 
-        stream.write(b"\r\n").await?;
+    //     stream.write(b"\r\n").await?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    pub async fn from_file(code: ResponseCode, file: &Path) -> Result<Response, ErrorKind> {
-        // if file.is_dir() {
-        //     // TODO
-        //     return Err(ErrorKind::NotFound);
-        // } else if !file.is_file() {
-        //     return Err(ErrorKind::NotFound);
-        // }
+    // pub async fn from_file(code: ResponseCode, file: &Path) -> Result<Response, ErrorKind> {
+    //     // if file.is_dir() {
+    //     //     // TODO
+    //     //     return Err(ErrorKind::NotFound);
+    //     // } else if !file.is_file() {
+    //     //     return Err(ErrorKind::NotFound);
+    //     // }
 
-        let file = match File::open(file).await {
-            Ok(file) => file,
-            Err(err) => return Err(err.kind()),
-        };
+    //     let file = match File::open(file).await {
+    //         Ok(file) => file,
+    //         Err(err) => return Err(err.kind()),
+    //     };
 
-        Ok(Response {
-            code,
-            headers: HashMap::new(),
-            file: Some(file),
-        })
-    }
+    //     Ok(Response {
+    //         code,
+    //         headers: HashMap::new(),
+    //         file: Some(file),
+    //     })
+    // }
 
-    async fn serialize_header(&self) -> Result<String, Error> {
+    async fn serialize_header(&self, file: File) -> Result<String, Error> {
         let mut response: String = format!(
             "HTTP/1.1 {} {}\r\n",
             self.code.code(),
             self.code.to_string()
         );
 
-		if self.file.is_some() {
+		if self.body.is_some() {
 			let file_length = format!(
 				"Content-Length: {}\r\n",
-				self.file.as_ref().unwrap().metadata().await?.len()
+				file.metadata().await?.len()
 			);
 			response = format!("{}{}", response, file_length);
 		}
@@ -108,16 +103,12 @@ impl Response {
         Ok(format!("{response}{headers}\r\n"))
     }
 
-    pub fn file(&self) -> Option<&File> {
-        self.file.as_ref()
-    }
-
-    pub fn set_file(&mut self, file: File) {
+    pub fn file(&mut self, file: File) {
         self.file = Some(file);
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ResponseCode {
     code: u16,
 }
